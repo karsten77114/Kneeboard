@@ -1,0 +1,12 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "kneeboard",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": ["-m", "http.server", "7788"],
+      "port": 7788,
+      "autoPort": false
+    }
+  ]
+}

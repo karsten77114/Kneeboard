@@ -1,0 +1,175 @@
+/* ── Top Bar ──────────────────────────────────────────────────── */
+#topbar {
+  position: fixed; top: 0; left: 0; right: 0;
+  height: var(--topbar-h);
+  background: rgba(12,17,24,0.88);
+  border-bottom: 1px solid var(--border);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  display: grid;
+  grid-template-columns: 80px 1fr 80px;
+  align-items: center;
+  padding: 0 16px;
+  z-index: 200;
+}
+
+.topbar-logo {
+  font-size: 15px; font-weight: 900;
+  color: var(--gold);
+  letter-spacing: -0.3px; white-space: nowrap;
+  text-shadow: 0 0 12px var(--gold-glow);
+}
+
+/* Centre column — flight info */
+.topbar-flight {
+  display: flex; align-items: center; justify-content: center;
+  gap: 10px; overflow: hidden;
+}
+
+.topbar-flt-num {
+  font-size: 16px; font-weight: 900; color: var(--gold);
+  letter-spacing: -0.5px; white-space: nowrap;
+}
+.topbar-route {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 15px; font-weight: 700; color: var(--text);
+}
+.topbar-arrow { color: var(--text3); font-size: 12px; }
+.topbar-meta {
+  display: flex; align-items: center; gap: 10px;
+  color: var(--text2); font-size: 12px;
+  white-space: nowrap;
+}
+.topbar-reg   { color: var(--blue); font-weight: 700; }
+.topbar-times {
+  font-family: 'JetBrains Mono', 'SF Mono', monospace;
+  color: var(--text2);
+}
+
+.topbar-empty {
+  color: var(--text3); font-size: 13px;
+  text-align: center;
+}
+
+/* Right column — UTC clock */
+.topbar-utc {
+  text-align: right;
+  font-family: 'JetBrains Mono', 'SF Mono', 'Courier New', monospace;
+  font-size: 13px; font-weight: 700;
+  color: var(--text2); white-space: nowrap;
+  letter-spacing: 0.5px;
+}
+.topbar-utc-label {
+  font-size: 10px; font-weight: 600;
+  color: var(--text3); letter-spacing: 0.8px;
+  display: block; text-align: right;
+}
+
+/* ── Main content ─────────────────────────────────────────────── */
+#main {
+  position: fixed;
+  top: var(--topbar-h);
+  bottom: var(--tabbar-h);
+  left: 0; right: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.view-content {
+  padding: 16px;
+  max-width: 900px;
+  margin: 0 auto;
+}
+
+/* ── Bottom Tab Bar ───────────────────────────────────────────── */
+#tabbar {
+  position: fixed; bottom: 0; left: 0; right: 0;
+  height: var(--tabbar-h);
+  background: rgba(12,17,24,0.90);
+  border-top: 1px solid var(--border);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  display: flex; align-items: stretch;
+  z-index: 200;
+  padding-bottom: env(safe-area-inset-bottom, 0);
+}
+
+.tab-btn {
+  flex: 1; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: 3px;
+  border: none; background: transparent;
+  color: var(--text3); font-size: 10px; font-weight: 600;
+  cursor: pointer; transition: color 0.15s; padding: 6px 4px;
+  letter-spacing: 0.3px;
+}
+.tab-btn svg, .tab-btn .tab-icon { font-size: 20px; line-height: 1; }
+.tab-btn.active {
+  color: var(--gold);
+}
+.tab-btn.active .tab-icon {
+  filter: drop-shadow(0 0 4px rgba(196,154,60,0.55));
+}
+.tab-btn:active { opacity: 0.7; }
+
+/* ── Sub-tab bar (Flight Crew inner tabs) ─────────────────────── */
+.sub-tabbar {
+  display: flex; gap: 0;
+  background: rgba(12,17,24,0.80);
+  border-bottom: 1px solid var(--border);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  overflow-x: auto; -webkit-overflow-scrolling: touch;
+  position: sticky; top: 0; z-index: 100;
+  padding: 0 4px;
+}
+.sub-tabbar::-webkit-scrollbar { display: none; }
+.sub-tab-btn {
+  flex-shrink: 0; padding: 10px 14px;
+  border: none; background: transparent;
+  color: var(--text3); font-size: 13px; font-weight: 600;
+  cursor: pointer; border-bottom: 2px solid transparent;
+  transition: all 0.15s; white-space: nowrap;
+}
+.sub-tab-btn.active {
+  color: var(--gold);
+  border-bottom-color: var(--gold);
+}
+
+/* ── Section header ───────────────────────────────────────────── */
+.section-title {
+  font-size: 13px; font-weight: 700; color: var(--text2);
+  text-transform: uppercase; letter-spacing: 0.6px;
+  margin: 20px 0 10px;
+}
+.section-title:first-child { margin-top: 0; }
+
+/* ── Responsive — iPad landscape sidebar ─────────────────────── */
+@media (min-width: 1024px) {
+  #tabbar { display: none; }
+  #sidebar {
+    display: flex; flex-direction: column;
+    position: fixed; top: var(--topbar-h); bottom: 0; left: 0;
+    width: 200px;
+    background: rgba(12,17,24,0.90);
+    border-right: 1px solid var(--border);
+    backdrop-filter: blur(16px);
+    padding: 16px 8px; gap: 4px;
+  }
+  .sidebar-btn {
+    display: flex; align-items: center; gap: 10px;
+    padding: 10px 12px; border-radius: var(--radius-sm);
+    border: none; background: transparent;
+    color: var(--text2); font-size: 14px; font-weight: 600;
+    cursor: pointer; text-align: left; transition: all 0.15s;
+  }
+  .sidebar-btn.active {
+    background: rgba(196,154,60,0.10);
+    color: var(--gold);
+    border-left: 2px solid var(--gold);
+  }
+  #main { left: 200px; }
+}
+
+@media (max-width: 1023px) {
+  #sidebar { display: none; }
+}

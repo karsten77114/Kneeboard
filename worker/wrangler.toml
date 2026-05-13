@@ -1,0 +1,9 @@
+name = "jx-briefing"
+main = "worker.js"
+compatibility_date = "2024-01-01"
+
+[vars]
+LIDO_USER_ID = "2317073"
+
+# Secrets set via: wrangler secret put LIDO_PASSWORD
+# Secrets set via: wrangler secret put ELB_PASSWORD
