@@ -99,6 +99,10 @@ function _formatTAF(raw) {
     .replace(/\s+(TEMPO|BECMG|PROB\d{2}\s+TEMPO|PROB\d{2}|INTER|FM\d{6})\b/g, '\n  $1')
     .trim();
 }
+function _stripWxType(raw) {
+  if (!raw) return raw;
+  return raw.replace(/^(METAR|SPECI|TAF(?:\s+AMD)?)\s+/, '');
+}
 function _getCeiling(raw) {
   let ceil = 99999;
   const re = /(BKN|OVC|VV)(\d{3})/g; let m;
@@ -295,8 +299,8 @@ function _awCard(icao, role) {
         </div>
         ${ageMin !== null ? `<div class="aw-times"><span>${ageMin} min ago</span></div>` : ''}
         <div class="aw-sec">METAR</div>
-        <div class="aw-raw">${_colorizeWX(c.metar || '—')}</div>
-        ${tafFormatted ? `<div class="aw-sec">TAF</div><div class="aw-raw aw-taf">${_colorizeWX(tafFormatted)}</div>` : ''}
+        <div class="aw-raw">${_colorizeWX(_stripWxType(c.metar) || '—')}</div>
+        ${tafFormatted ? `<div class="aw-sec">TAF</div><div class="aw-raw aw-taf">${_colorizeWX(_stripWxType(tafFormatted))}</div>` : ''}
       </div>
     </div>`;
 }

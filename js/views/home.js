@@ -61,7 +61,10 @@ export function mount(container) {
       <div class="card">
         <div class="search-row">
           <input class="input input-upper" id="s-flight" placeholder="班號 850" maxlength="4" style="width:90px">
-          <input class="input" id="s-date" type="date" style="width:148px">
+          <div style="display:flex;align-items:center;gap:4px">
+            <input class="input" id="s-date" type="date" style="width:148px">
+            <span style="font-size:10px;font-weight:700;color:var(--text3);letter-spacing:0.5px;white-space:nowrap">UTC</span>
+          </div>
           <input class="input input-upper" id="s-dep" placeholder="DEP" maxlength="4" style="width:64px;text-align:center">
           <span style="color:var(--text3);font-size:16px">→</span>
           <input class="input input-upper" id="s-dest" placeholder="DEST" maxlength="4" style="width:64px;text-align:center">
@@ -93,7 +96,7 @@ export function mount(container) {
         <div class="err-msg hidden" id="lido-err"></div>
         <div class="form-group">
           <label class="form-label">LIDO User ID</label>
-          <input class="input" id="lido-user" type="text" placeholder="例：2317073">
+          <input class="input" id="lido-user" type="text" placeholder="pilot">
         </div>
         <div class="form-group">
           <label class="form-label">密碼</label>

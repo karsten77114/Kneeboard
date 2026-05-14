@@ -20,30 +20,40 @@
   text-shadow: 0 0 12px var(--gold-glow);
 }
 
-/* Centre column — flight info */
+/* Centre column — flight info (two-row layout) */
 .topbar-flight {
-  display: flex; align-items: center; justify-content: center;
-  gap: 10px; overflow: hidden;
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  overflow: hidden; gap: 1px;
 }
 
+/* Row 1: flight number + route */
+.topbar-main-row {
+  display: flex; align-items: center; gap: 6px;
+  white-space: nowrap; overflow: hidden; max-width: 100%;
+}
 .topbar-flt-num {
-  font-size: 16px; font-weight: 900; color: var(--gold);
-  letter-spacing: -0.5px; white-space: nowrap;
+  font-size: 14px; font-weight: 900; color: var(--gold);
+  letter-spacing: -0.3px; flex-shrink: 0;
 }
 .topbar-route {
-  display: flex; align-items: center; gap: 6px;
-  font-size: 15px; font-weight: 700; color: var(--text);
+  display: flex; align-items: center; gap: 4px;
+  font-size: 14px; font-weight: 700; color: var(--text);
 }
-.topbar-arrow { color: var(--text3); font-size: 12px; }
+.topbar-arrow { color: var(--text3); font-size: 11px; }
+
+/* Row 2: reg + times (secondary, smaller) */
 .topbar-meta {
-  display: flex; align-items: center; gap: 10px;
-  color: var(--text2); font-size: 12px;
-  white-space: nowrap;
+  display: flex; align-items: center; gap: 6px;
+  font-size: 10px; color: var(--text3);
+  white-space: nowrap; overflow: hidden; max-width: 100%;
 }
-.topbar-reg   { color: var(--blue); font-weight: 700; }
+.topbar-reg {
+  color: var(--blue); font-weight: 700;
+}
 .topbar-times {
   font-family: 'JetBrains Mono', 'SF Mono', monospace;
-  color: var(--text2);
+  color: var(--text3);
 }
 
 .topbar-empty {

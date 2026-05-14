@@ -271,16 +271,31 @@ function _loadWeather(dep, dest) {
 }
 
 function _wxInlineHtml(c) {
-  if (!c) return '<div class="wx-spin-sm"></div>';
-  if (c.loading) return '<div class="wx-spin-sm"></div>';
+  if (!c || c.loading) return '<div class="wx-spin-sm"></div>';
   if (c.error) return `<div style="color:var(--text3);font-size:10px">—</div>`;
-  const mono = "font-family:'JetBrains Mono','SF Mono',monospace;word-break:break-all;white-space:pre-wrap";
-  let html = `<div style="${mono};font-size:10px;color:var(--text);line-height:1.55">${_esc(c.metar || '—')}</div>`;
-  if (c.taf) {
-    const short = c.taf.length > 220 ? c.taf.slice(0, 220) + '…' : c.taf;
-    html += `<div style="${mono};font-size:9.5px;color:var(--text3);line-height:1.5;margin-top:4px">${_esc(short)}</div>`;
+  const metar = c.metar || '';
+
+  const windM = metar.match(/\b(VRB|\d{3})(\d{2,3})(G\d{2,3})?KT\b/);
+  const wind = windM ? `${windM[1]}/${windM[2]}${windM[3] || ''}kt` : null;
+
+  const tempM = metar.match(/\b(M?\d{2})\/(M?\d{2})\b/);
+  const temp = tempM ? `${tempM[1].replace('M', '-')}°C` : null;
+
+  let cloud = null;
+  if (/\bCAVOK\b/.test(metar)) {
+    cloud = 'CAVOK';
+  } else {
+    const cloudM = metar.match(/\b(FEW|SCT|BKN|OVC)(\d{3})(CB|TCU)?\b/);
+    if (cloudM) cloud = cloudM[0];
   }
-  return html;
+
+  const items = [wind, temp, cloud].filter(Boolean);
+  if (!items.length) return `<div style="color:var(--text3);font-size:10px">—</div>`;
+
+  const mono = "font-family:'JetBrains Mono','SF Mono',monospace";
+  return items.map(item =>
+    `<div style="${mono};font-size:11px;color:var(--text);line-height:1.6">${_esc(item)}</div>`
+  ).join('');
 }
 
 // ── Fuel ─────────────────────────────────────────────────────────

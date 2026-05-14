@@ -74,20 +74,23 @@ function _renderTopBar() {
     return;
   }
 
-  const times = [f.std, f.sta].filter(Boolean).join(' → ') || '';
+  const std = f.std ? f.std + 'Z' : '';
+  const sta = f.sta ? f.sta + 'Z' : '';
+  const times = [std, sta].filter(Boolean).join('→');
   topbarEl.innerHTML = `
     <div class="topbar-logo">KB</div>
     <div class="topbar-flight">
-      <div class="topbar-flt-num">${f.flightNumber || ''}</div>
-      <div class="topbar-route">
-        <span>${f.dep || ''}</span>
-        <span class="topbar-arrow">→</span>
-        <span>${f.dest || ''}</span>
+      <div class="topbar-main-row">
+        <span class="topbar-flt-num">${f.flightNumber || ''}</span>
+        <span class="topbar-route">
+          <span>${f.dep || ''}</span>
+          <span class="topbar-arrow">→</span>
+          <span>${f.dest || ''}</span>
+        </span>
       </div>
       <div class="topbar-meta">
         ${f.reg   ? `<span class="topbar-reg">${f.reg}</span>` : ''}
         ${times   ? `<span class="topbar-times">${times}</span>` : ''}
-        ${f.ete   ? `<span style="color:var(--text3)">${f.ete}</span>` : ''}
       </div>
     </div>
     ${_utcBlock()}`;
