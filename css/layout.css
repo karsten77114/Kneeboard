@@ -1,15 +1,16 @@
 /* ── Top Bar ──────────────────────────────────────────────────── */
 #topbar {
   position: fixed; top: 0; left: 0; right: 0;
-  height: var(--topbar-h);
+  height: calc(var(--topbar-h) + env(safe-area-inset-top, 0px));
   background: rgba(12,17,24,0.88);
   border-bottom: 1px solid var(--border);
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
   display: flex;
   flex-direction: column;
-  justify-content: center;
-  padding: 6px 16px 8px;
+  justify-content: flex-end;
+  padding: 0 16px 8px;
+  padding-top: env(safe-area-inset-top, 6px);
   gap: 6px;
   z-index: 200;
 }
@@ -93,7 +94,7 @@
 /* ── Main content ─────────────────────────────────────────────── */
 #main {
   position: fixed;
-  top: var(--topbar-h);
+  top: calc(var(--topbar-h) + env(safe-area-inset-top, 0px));
   bottom: var(--tabbar-h);
   left: 0; right: 0;
   overflow-y: auto;
@@ -173,7 +174,7 @@
   #tabbar { display: none; }
   #sidebar {
     display: flex; flex-direction: column;
-    position: fixed; top: var(--topbar-h); bottom: 0; left: 0;
+    position: fixed; top: calc(var(--topbar-h) + env(safe-area-inset-top, 0px)); bottom: 0; left: 0;
     width: 200px;
     background: rgba(12,17,24,0.90);
     border-right: 1px solid var(--border);
