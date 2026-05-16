@@ -60,11 +60,13 @@ function _render(container) {
 
   const crewKey = `crew_${fltNo}_${d.date || ''}`;
   const crew    = storage.get(crewKey, {});
+  const pic     = d.pic || '';
+  const ofpNo   = d.ofpNumber || d.ofpNo || '';
 
   container.innerHTML = `
     <div class="view-content">
 
-      ${_arcCard(dep, dest, fltNo, t, cruiseFL, block, remaining, reg, d.date, crew, o)}
+      ${_arcCard(dep, dest, fltNo, t, cruiseFL, block, remaining, reg, d.date, crew, o, pic, ofpNo)}
 
       <!-- ATC Route + MEL -->
       <div class="grid2" style="margin-bottom:10px">
@@ -88,6 +90,7 @@ function _render(container) {
         <div class="card">
           <div class="card-title">Fuel Plan</div>
           ${_fuelRows(o)}
+          ${_extraFuelInputHtml(o, crew)}
         </div>
         <div class="card">
           <div class="card-title">Weight</div>
@@ -100,12 +103,12 @@ function _render(container) {
   _applyStyles();
   _renderMEL();
   _loadWeather(dep, dest);
-  setTimeout(() => _bindCrew(crewKey, fltNo, dep, dest, t, cruiseFL, block), 0);
+  setTimeout(() => _bindCrew(crewKey, fltNo, dep, dest, t, cruiseFL, block, o), 0);
 }
 
 // ── Arc card ─────────────────────────────────────────────────────
 
-function _arcCard(dep, dest, fltNo, t, cruiseFL, block, remaining, reg, date, crew, o) {
+function _arcCard(dep, dest, fltNo, t, cruiseFL, block, remaining, reg, date, crew, o, pic, ofpNo) {
   const std  = t.std  || '—';
   const sta  = t.sta  || '—';
   const stdL = t.stdLocal ? t.stdLocal + 'L' : '';
@@ -179,7 +182,8 @@ function _arcCard(dep, dest, fltNo, t, cruiseFL, block, remaining, reg, date, cr
         <div class="arc-center">
           <div class="arc-ete">${ete}</div>
           <div class="arc-sub">Block ${blockStr} · Rem ${remStr}</div>
-          ${reg !== '—' ? `<div class="arc-sub" style="color:var(--blue)">${reg}${date ? ' · ' + _dateLabel(date) : ''}</div>` : ''}
+          ${reg !== '—' ? `<div class="arc-sub" style="color:var(--blue)">${reg}${date ? ' · ' + _dateLabel(date) : ''}${ofpNo ? `  <span style="color:var(--gold);font-weight:700">OFP ${_esc(ofpNo)}</span>` : ''}</div>` : ''}
+          ${pic ? `<div class="arc-sub" style="margin-top:2px">PIC <span style="font-weight:700;color:var(--text)">${_esc(pic)}</span></div>` : ''}
         </div>
         <div class="arc-tblock arc-tblock-r">
           <div class="arc-tlbl">STA</div>
@@ -192,18 +196,26 @@ function _arcCard(dep, dest, fltNo, t, cruiseFL, block, remaining, reg, date, cr
 
       <!-- Weather + Gate inputs row -->
       <div style="margin-top:12px;border-top:1px solid var(--border);padding-top:10px">
-        <div class="grid2f" style="gap:12px;margin-bottom:10px">
+        <!-- Weather row (height may vary with content) -->
+        <div class="grid2f" style="gap:12px;margin-bottom:8px">
           <div>
             <div class="wx-hdr">${dep} WX</div>
             <div id="wx-${toICAO(dep)}-inline" class="wx-body-sm"><div class="wx-spin-sm"></div></div>
-            <div class="brief-lbl" style="margin-top:8px">Dep Gate</div>
-            <input id="c-dep" class="input" type="text" style="height:36px;padding:6px 10px"
-              value="${_esc(crew.dep_gate||'')}" placeholder="B3"/>
           </div>
           <div>
             <div class="wx-hdr">${dest} WX</div>
             <div id="wx-${toICAO(dest)}-inline" class="wx-body-sm"><div class="wx-spin-sm"></div></div>
-            <div class="brief-lbl" style="margin-top:8px">Arr Gate</div>
+          </div>
+        </div>
+        <!-- Gate row — always parallel, independent of WX height above -->
+        <div class="grid2f" style="gap:12px;margin-bottom:10px">
+          <div>
+            <div class="brief-lbl">Dep Gate</div>
+            <input id="c-dep" class="input" type="text" style="height:36px;padding:6px 10px"
+              value="${_esc(crew.dep_gate||'')}" placeholder="B3"/>
+          </div>
+          <div>
+            <div class="brief-lbl">Arr Gate</div>
             <input id="c-arr" class="input" type="text" style="height:36px;padding:6px 10px"
               value="${_esc(crew.arr_gate||'')}" placeholder="A8"/>
           </div>
@@ -293,9 +305,31 @@ function _wxInlineHtml(c) {
   if (!items.length) return `<div style="color:var(--text3);font-size:10px">—</div>`;
 
   const mono = "font-family:'JetBrains Mono','SF Mono',monospace";
-  return items.map(item =>
-    `<div style="${mono};font-size:11px;color:var(--text);line-height:1.6">${_esc(item)}</div>`
-  ).join('');
+  return `<div style="${mono};font-size:11px;color:var(--text);line-height:1.6">${items.map(_esc).join('  ')}</div>`;
+}
+
+// ── Extra fuel input + total ──────────────────────────────────────
+
+function _extraFuelInputHtml(o, crew) {
+  if (o.toFuel == null) return '';
+  const extra = crew.extra_fuel != null ? crew.extra_fuel : '';
+  const total = (extra !== '') ? o.toFuel + Number(extra) : o.toFuel;
+  return `
+    <div style="border-top:1px solid var(--border);margin-top:10px;padding-top:10px">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+        <span style="font-size:12px;color:var(--text2);flex:1">+ 機長追加油量</span>
+        <input id="c-extra-fuel" class="input" type="number" min="0" step="50"
+          value="${_esc(String(extra))}" placeholder="0"
+          style="width:90px;height:32px;padding:4px 8px;text-align:right;font-size:13px"/>
+        <span style="font-size:12px;color:var(--text2)">kg</span>
+      </div>
+      <div style="background:var(--surface);border-radius:8px;padding:8px 12px;display:flex;justify-content:space-between;align-items:center">
+        <span style="font-weight:700;font-size:13px">Total Fuel
+          <span style="font-size:10px;color:var(--text3);font-weight:400">（報告油量）</span>
+        </span>
+        <span id="c-total-fuel" style="color:var(--gold);font-size:17px;font-weight:800;font-family:'JetBrains Mono','SF Mono',monospace">${fuelStr(total)}</span>
+      </div>
+    </div>`;
 }
 
 // ── Fuel ─────────────────────────────────────────────────────────
@@ -379,32 +413,81 @@ function _crewText(fltNo, dep, dest, t, cruiseFL, crew, block) {
     crew.arr_gate ? `ARR Gate ${crew.arr_gate}` : '',
   ].filter(Boolean).join('  ·  ');
 
+  // Fuel total
+  const toFuel   = store.briefing?.ofp?.toFuel;
+  const extraFuel = crew.extra_fuel || 0;
+  const fuelLine = toFuel != null
+    ? `Fuel Order: ${fuelStr(toFuel + extraFuel)}${extraFuel ? ` (OFP ${fuelStr(toFuel)} + Capt add ${fuelStr(extraFuel)})` : ''}`
+    : '';
+
+  // MEL / CDL summary from ELB
+  let melLine = '';
+  const elb = store.elbData;
+  if (elb && !elb.loading && !elb.error) {
+    const logs = elb.mel || [];
+    if (!logs.length) {
+      melLine = 'MEL/CDL: ✓ Clear';
+    } else {
+      const sortedC = [...logs].sort((a,b) => {
+        const typeOrder = { MEL: 0, CDL: 1, OTH: 2 };
+        const ta = typeOrder[a._refType] ?? 2, tb = typeOrder[b._refType] ?? 2;
+        if (ta !== tb) return ta - tb;
+        return (a._expireDays ?? Infinity) - (b._expireDays ?? Infinity);
+      });
+      const items  = sortedC.map(m => {
+        const type  = m._refType || 'MEL';
+        const code  = (m._refType !== 'OTH' && m._melCode) ? ` ${m._melCode}` : '';
+        const cat   = m._category ? ` Cat ${m._category}` : '';
+        const expir = m._expireDays != null ? ` (${m._expireDays}d)`
+                    : m._expireLimit        ? ` (${m._expireLimit})` : '';
+        return `${type}${code}${cat}${expir}`;
+      }).join(' | ');
+      melLine = `MEL/CDL/OTH (${logs.length}): ${items}`;
+    }
+  }
+
   return [
     `${fltNo}  ${dep} → ${dest}`,
     `STD ${t.std||'—'}  STA ${t.sta||'—'}`,
     `ETE ${ete}  Block ${blk}`,
     gates,
     `Cruise FL${fl}  Water ${water}`,
+    fuelLine,
     `Wx: ${wx}`,
+    melLine,
   ].filter(Boolean).join('\n');
 }
 
-function _bindCrew(crewKey, fltNo, dep, dest, t, cruiseFL, block) {
+function _bindCrew(crewKey, fltNo, dep, dest, t, cruiseFL, block, o) {
   const copyBtn = document.getElementById('c-copy');
   if (!copyBtn) return;
 
   function _save() {
     const crew = storage.get(crewKey, {});
-    crew.dep_gate  = document.getElementById('c-dep')?.value   || '';
-    crew.arr_gate  = document.getElementById('c-arr')?.value   || '';
-    crew.water_pct = parseInt(document.getElementById('c-water')?.value || '100', 10);
-    crew.wx_note   = document.getElementById('c-wx')?.value    || '';
+    crew.dep_gate   = document.getElementById('c-dep')?.value   || '';
+    crew.arr_gate   = document.getElementById('c-arr')?.value   || '';
+    crew.water_pct  = parseInt(document.getElementById('c-water')?.value || '100', 10);
+    crew.wx_note    = document.getElementById('c-wx')?.value    || '';
+    const extraRaw  = document.getElementById('c-extra-fuel')?.value;
+    crew.extra_fuel = (extraRaw !== '' && extraRaw != null) ? parseInt(extraRaw, 10) || 0 : null;
     storage.set(crewKey, crew);
   }
 
   ['c-dep','c-arr','c-water','c-wx'].forEach(id => {
     document.getElementById(id)?.addEventListener('input', _save);
   });
+
+  // Extra fuel: save + live-update total display
+  const extraFuelEl = document.getElementById('c-extra-fuel');
+  if (extraFuelEl) {
+    extraFuelEl.addEventListener('input', () => {
+      _save();
+      const extra   = parseInt(extraFuelEl.value || '0', 10) || 0;
+      const toFuel  = o?.toFuel ?? store.briefing?.ofp?.toFuel ?? 0;
+      const totalEl = document.getElementById('c-total-fuel');
+      if (totalEl) totalEl.textContent = fuelStr(toFuel + extra);
+    });
+  }
 
   copyBtn.addEventListener('click', async () => {
     _save();
@@ -461,10 +544,18 @@ function _renderMEL() {
     badge.style.display = 'inline-block';
     if (!logs.length) {
       badge.style.cssText = 'display:inline-block;font-size:12px;font-weight:700;padding:2px 10px;border-radius:12px;background:rgba(34,197,94,.2);color:var(--green)';
-      badge.textContent = '0 MEL';
+      badge.textContent = '✓ Clear';
     } else {
+      const melCnt = logs.filter(m => m._refType === 'MEL').length;
+      const cdlCnt = logs.filter(m => m._refType === 'CDL').length;
+      const othCnt = logs.filter(m => m._refType === 'OTH' || (!m._refType)).length;
+      const parts  = [
+        melCnt ? `${melCnt} MEL` : '',
+        cdlCnt ? `${cdlCnt} CDL` : '',
+        othCnt ? `${othCnt} OTH` : '',
+      ].filter(Boolean);
       badge.style.cssText = 'display:inline-block;font-size:12px;font-weight:700;padding:2px 10px;border-radius:12px;background:rgba(245,158,11,.2);color:var(--gold)';
-      badge.textContent = `${logs.length} MEL`;
+      badge.textContent = parts.join(' · ');
     }
   }
 
@@ -473,24 +564,45 @@ function _renderMEL() {
     return;
   }
 
-  const sorted = [...logs].sort((a,b) => (a._expireDays ?? Infinity) - (b._expireDays ?? Infinity));
+  const sorted = [...logs].sort((a,b) => {
+    // Sort: MEL first, then CDL, then OTH; within each group sort by expiry
+    const typeOrder = { MEL: 0, CDL: 1, OTH: 2 };
+    const ta = typeOrder[a._refType] ?? 2, tb = typeOrder[b._refType] ?? 2;
+    if (ta !== tb) return ta - tb;
+    return (a._expireDays ?? Infinity) - (b._expireDays ?? Infinity);
+  });
   body.innerHTML = sorted.map(m => {
     const desc = m.faultDescription || m.defectDescription || '（無描述）';
     const cat  = m._category || '';
     const days = m._expireDays;
     const expCls  = days != null ? (days <= 7 ? 'urgent' : days <= 30 ? 'warn' : 'ok') : '';
     const expHtml = days != null
-      ? `<span style="font-size:11px;padding:1px 7px;border-radius:10px;${_expStyle(expCls)}">到期 ${days} 天</span>` : '';
+      ? `<span style="font-size:11px;padding:1px 7px;border-radius:10px;${_expStyle(expCls)}">到期 ${days} 天</span>`
+      : m._expireLimit
+      ? `<span style="font-size:11px;padding:1px 7px;border-radius:10px;background:rgba(96,165,250,.15);color:var(--blue)">限制 ${m._expireLimit}</span>`
+      : '';
     const catMap = {
       A: 'rgba(239,68,68,.3);color:var(--red)',
       B: 'rgba(245,158,11,.3);color:var(--gold)',
       C: 'rgba(250,204,21,.3);color:#fbbf24',
       D: 'rgba(148,163,184,.2);color:var(--text2)',
+      O: 'rgba(96,165,250,.2);color:var(--blue)',
     };
     const catHtml = cat
       ? `<span style="font-size:11px;font-weight:700;padding:1px 7px;border-radius:10px;background:${catMap[cat]||catMap.D}">Cat ${cat}</span>` : '';
+    // Type chip: colour-coded by refType
+    const typeStyle = {
+      MEL: 'background:rgba(245,158,11,.2);color:var(--gold)',
+      CDL: 'background:rgba(250,204,21,.15);color:#fbbf24',
+      OTH: 'background:rgba(96,165,250,.15);color:var(--blue)',
+    }[m._refType] || 'background:rgba(245,158,11,.2);color:var(--gold)';
+    const typeChip = `<span style="font-size:11px;font-weight:800;padding:1px 7px;border-radius:10px;${typeStyle}">${m._refType || 'MEL'}</span>`;
+    const codeStr  = (m._refType !== 'OTH' && m._melCode)
+      ? `<span style="font-size:12px;font-weight:700;color:var(--text)">${m._melCode}</span>` : '';
     return `<div style="padding:10px 0;border-bottom:1px solid var(--border)">
-      ${m._melCode ? `<div style="font-size:12px;font-weight:700;color:var(--gold);margin-bottom:3px">MEL ${m._melCode}</div>` : ''}
+      <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px">
+        ${typeChip}${codeStr}
+      </div>
       <div style="font-size:13px;color:var(--text)">${desc}</div>
       <div style="display:flex;align-items:center;flex-wrap:wrap;gap:4px;margin-top:4px">
         ${m.deferralRefNum ? `<span style="font-size:11px;color:var(--text3)">REF ${m.deferralRefNum}</span>` : ''}

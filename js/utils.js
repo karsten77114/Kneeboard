@@ -36,9 +36,17 @@ export function toICAO(code) {
   return _IATA2ICAO[u] || u;
 }
 
+const _ICAO2IATA = Object.fromEntries(Object.entries(_IATA2ICAO).map(([k, v]) => [v, k]));
+
+export function toIATA(code) {
+  if (!code) return code;
+  const u = String(code).trim().toUpperCase().split('/')[0];
+  if (/^[A-Z]{3}$/.test(u)) return u;  // already IATA
+  return _ICAO2IATA[u] || u;
+}
+
 export function todayStr() {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+  return new Date().toISOString().slice(0, 10); // UTC date
 }
 
 export function fuelStr(kg) {

@@ -1,7 +1,7 @@
 import store from '../store.js';
 import storage from '../services/storage.js';
-import { lidoLogin, elbLogin, ensureLido, fetchBriefing, fetchFlightList, preloadElbForFlight, preloadMetarForFlight } from '../services/api.js';
-import { showToast, fuelStr, todayStr, toICAO } from '../utils.js';
+import { lidoLogin, elbLogin } from '../services/api.js';
+import { showToast } from '../utils.js';
 
 // ── PIREPS checklist definition ───────────────────────────────────
 const PIREPS = [
@@ -23,8 +23,6 @@ const PIREPS = [
   { id: 'F1', cat: 'Final', label: 'Fleet Notice Reviewed' },
   { id: 'F2', cat: 'Final', label: 'OFP Signed' },
 ];
-
-let pirepsKey = '';
 
 export function mount(container) {
   container.innerHTML = `
@@ -53,27 +51,6 @@ export function mount(container) {
             </div>
           </div>
           <button class="btn btn-ghost btn-sm" id="btn-elb-login">登入 Login</button>
-        </div>
-      </div>
-
-      <!-- Flight Search -->
-      <div class="section-title">航班查詢 Flight Search</div>
-      <div class="card">
-        <div class="search-row">
-          <input class="input input-upper" id="s-flight" placeholder="班號 850" maxlength="4" style="width:90px">
-          <div style="display:flex;align-items:center;gap:4px">
-            <input class="input" id="s-date" type="date" style="width:148px">
-            <span style="font-size:10px;font-weight:700;color:var(--text3);letter-spacing:0.5px;white-space:nowrap">UTC</span>
-          </div>
-          <input class="input input-upper" id="s-dep" placeholder="DEP" maxlength="4" style="width:64px;text-align:center">
-          <span style="color:var(--text3);font-size:16px">→</span>
-          <input class="input input-upper" id="s-dest" placeholder="DEST" maxlength="4" style="width:64px;text-align:center">
-          <button class="btn btn-primary" id="btn-search">查詢 Query</button>
-        </div>
-        <div class="err-msg hidden" id="search-err"></div>
-        <div id="search-loading" class="hidden" style="display:flex;align-items:center;gap:10px;margin-top:12px;color:var(--text2);font-size:13px">
-          <div class="spinner" style="width:20px;height:20px;border-width:2px"></div>
-          <span id="search-loading-msg">正在查詢…</span>
         </div>
       </div>
 
@@ -132,14 +109,14 @@ export function mount(container) {
   `;
 
   _applyStyles();
-  _initSearch();
   _initAuth();
   _renderAuthStatus();
   _renderPireps();
 
-  // Re-render connection status when store updates
+  // Re-render when auth or flight changes
   const unsub = store.subscribe(() => {
     _renderAuthStatus();
+    _renderPireps();
   });
   container._unsub = unsub;
 }
@@ -176,16 +153,24 @@ function _updateDot(system) {
 }
 
 function _initAuth() {
-  // Restore stored sessions into store on mount
+  // Restore stored sessions into store on mount ONLY if not already set
+  // This avoids overwriting an 'expired' status set by verifySessions
   const lido = storage.getLidoCredentials();
-  if (lido.token && lido.userId) {
-    store.setAuth('lido', { token: lido.token, userId: lido.userId, status: 'ok' });
-  } else if (lido.userId) {
-    store.setAuth('lido', { status: 'expired' });
+  if (lido.userId && store.auth.lido.status === 'idle') {
+    if (lido.token) {
+      store.setAuth('lido', { token: lido.token, userId: lido.userId, status: 'ok' });
+    } else {
+      store.setAuth('lido', { status: 'expired' });
+    }
   }
+
   const elb = storage.getELBCredentials();
-  if (elb.token && elb.userId) {
-    store.setAuth('elb', { token: elb.token, userId: elb.userId, status: 'ok' });
+  if (elb.userId && store.auth.elb.status === 'idle') {
+    if (elb.token) {
+      store.setAuth('elb', { token: elb.token, userId: elb.userId, status: 'ok' });
+    } else {
+      store.setAuth('elb', { status: 'expired' });
+    }
   }
 
   // LIDO modal
@@ -247,108 +232,6 @@ async function _doLogin(system) {
   }
 }
 
-// ── Flight Search ─────────────────────────────────────────────────
-
-function _initSearch() {
-  const dateEl = document.getElementById('s-date');
-  dateEl.value = todayStr();
-
-  const last = storage.getLastSearch();
-  if (last.flight) document.getElementById('s-flight').value = last.flight;
-  if (last.dep)    document.getElementById('s-dep').value    = last.dep;
-  if (last.dest)   document.getElementById('s-dest').value   = last.dest;
-
-  document.getElementById('btn-search').onclick = _doSearch;
-  ['s-flight','s-date','s-dep','s-dest'].forEach(id => {
-    document.getElementById(id)?.addEventListener('keydown', e => { if (e.key === 'Enter') _doSearch(); });
-  });
-}
-
-async function _doSearch() {
-  const flight = document.getElementById('s-flight').value.trim().replace(/^JX/i, '');
-  const date   = document.getElementById('s-date').value;
-  const dep    = document.getElementById('s-dep').value.trim().toUpperCase();
-  const dest   = document.getElementById('s-dest').value.trim().toUpperCase();
-  const errEl  = document.getElementById('search-err');
-  const loadEl = document.getElementById('search-loading');
-  const loadMsg = document.getElementById('search-loading-msg');
-
-  if (!flight) { _showSearchErr('請輸入班號'); return; }
-  if (!date)   { _showSearchErr('請選擇日期'); return; }
-
-  errEl.classList.add('hidden');
-  loadEl.classList.remove('hidden');
-  document.getElementById('btn-search')?.setAttribute('disabled', '');
-
-  storage.saveLastSearch({ flight, dep, dest });
-
-  const ready = await ensureLido();
-  if (!ready) {
-    loadEl?.classList.add('hidden');
-    document.getElementById('btn-search')?.removeAttribute('disabled');
-    _showSearchErr('請先登入 LIDO');
-    _openModal('lido');
-    return;
-  }
-
-  loadMsg.textContent = `正在從 LIDO 取得 JX${flight}…`;
-
-  try {
-    const data = await fetchBriefing(flight, date, dep, dest);
-    store.setBriefing(data);
-
-    // Build flight summary for top bar
-    store.setFlight({
-      legId:        data.legId,
-      flightNumber: data.flightNumber,
-      dep:          data.dep,
-      dest:         data.dest,
-      std:          data.times?.std || '',
-      sta:          data.times?.sta || '',
-      stdLocal:     data.times?.stdLocal || '',
-      staLocal:     data.times?.staLocal || '',
-      ete:          data.times?.ete  || '',
-      reg:          data.aircraft?.registration || data.ofp?.reg || '',
-      date:         data.date,
-    });
-
-    pirepsKey = `${data.flightNumber}_${data.date}`;
-    _renderPireps();
-    showToast(`✅ JX${flight} 資料已載入`);
-
-    // 背景預載 ELB 資料（不阻塞主流程）
-    const reg = data.aircraft?.registration || data.ofp?.reg || '';
-    if (reg && store.auth.elb.status === 'ok') {
-      preloadElbForFlight(reg).catch(() => {});
-    }
-
-    // 背景預載所有相關機場 METAR/TAF（不阻塞主流程）
-    const wxApts = [
-      data.dep,
-      data.dest,
-      data.ofp?.altnApt || data.ofp?.altn || data.altn || data.alternate,
-      ...(data.wxAirports || []),
-    ].filter(Boolean).map(toICAO);
-    preloadMetarForFlight([...new Set(wxApts)]).catch(() => {});
-  } catch (e) {
-    if (e.message === 'session_expired') {
-      _showSearchErr('LIDO session 過期，請重新登入');
-      _openModal('lido');
-    } else {
-      _showSearchErr(e.message);
-    }
-  } finally {
-    loadEl?.classList.add('hidden');
-    document.getElementById('btn-search')?.removeAttribute('disabled');
-  }
-}
-
-function _showSearchErr(msg) {
-  const el = document.getElementById('search-err');
-  el.textContent = msg;
-  el.classList.remove('hidden');
-}
-
 // ── PIREPS ────────────────────────────────────────────────────────
 
 function _renderPireps() {
@@ -359,7 +242,8 @@ function _renderPireps() {
   if (!store.flight) { section.classList.add('hidden'); return; }
   section.classList.remove('hidden');
 
-  const saved = pirepsKey ? storage.getPireps(pirepsKey) : {};
+  const pirepsKey = `${store.flight.flightNumber}_${store.flight.date}`;
+  const saved = storage.getPireps(pirepsKey);
   let currentCat = '';
   let html = '';
 

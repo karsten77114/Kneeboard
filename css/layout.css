@@ -6,11 +6,26 @@
   border-bottom: 1px solid var(--border);
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
-  display: grid;
-  grid-template-columns: 80px 1fr 80px;
-  align-items: center;
-  padding: 0 16px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 6px 16px 8px;
+  gap: 6px;
   z-index: 200;
+}
+
+/* Row 1: logo | flight info | UTC */
+#topbar-row1 {
+  display: grid;
+  grid-template-columns: 56px 1fr 80px;
+  align-items: center;
+}
+
+/* Row 2: search form */
+#topbar-row2 {
+  display: flex;
+  align-items: center;
+  gap: 5px;
 }
 
 .topbar-logo {

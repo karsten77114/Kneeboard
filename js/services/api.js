@@ -60,8 +60,44 @@ export async function fetchFlightList(dateStr) {
 
   const date = dateStr.replace(/-/g, '');
   const resp = await fetch(`${WORKER}/flights?sessionToken=${token}&date=${date}`);
+  if (resp.status === 401) {
+    storage.clearLidoSession();
+    store.setAuth('lido', { token: null, status: 'expired' });
+    throw new Error('session_expired');
+  }
   if (!resp.ok) return [];
   return resp.json();
+}
+
+// Check session validity for all systems
+export async function verifySessions() {
+  // LIDO
+  const lido = storage.getLidoCredentials();
+  if (lido.token) {
+    try {
+      // A small request to verify token
+      await fetchFlightList(new Date().toISOString().split('T')[0]);
+      store.setAuth('lido', { userId: lido.userId, status: 'ok' });
+    } catch (e) {
+      if (e.message === 'session_expired') {
+        store.setAuth('lido', { token: null, status: 'expired' });
+      }
+    }
+  }
+
+  // ELB
+  const elb = storage.getELBCredentials();
+  if (elb.token) {
+    try {
+      // Minimal query to check ELB session
+      await elbQuery('getAircraftState', { id: 'B-58201' }, elb.token);
+      store.setAuth('elb', { userId: elb.userId, status: 'ok' });
+    } catch (e) {
+      if (/session|auth|401/i.test(e.message)) {
+        store.setAuth('elb', { token: null, status: 'expired' });
+      }
+    }
+  }
 }
 
 // ── D-ATIS ────────────────────────────────────────────────────────
@@ -181,10 +217,19 @@ export async function getMELFull(id, token) {
       ml._category   = d.deferralCategoryOther || d.deferralCategory || '?';
       ml._expireDays = calcExpireDays(ml.originDateTime, d.expiration);
     }
-    const refs   = ma?.actionAuthorityRef || [];
-    const melRef = refs.find(r => r.typeOfReference === 'MEL')?.documentNumber
-                || refs.find(r => r.typeOfDocumentOther === 'MEL')?.documentNumber;
-    if (melRef) ml._melCode = melRef;
+    const refs     = ma?.actionAuthorityRef || [];
+    const primary  = refs.filter(r => r.typeOfReference !== 'ACTION');
+    const melRef   = primary.find(r => r.typeOfReference === 'MEL' || r.typeOfDocumentOther === 'MEL')?.documentNumber;
+    const cdlRef   = primary.find(r => r.typeOfReference === 'CDL' || r.typeOfDocumentOther === 'CDL')?.documentNumber;
+    if (melRef)      { ml._melCode = melRef; ml._refType = 'MEL'; }
+    else if (cdlRef) { ml._melCode = cdlRef; ml._refType = 'CDL'; }
+    else             { ml._refType = 'OTH'; }           // MP task / inspection / other
+
+    // FC-based expiry (OTH maintenance tasks use flight-cycle limits, not days)
+    const exp0 = d?.expiration?.[0];
+    if (!ml._expireDays && exp0?.quantity && exp0?.unitName) {
+      ml._expireLimit = `${exp0.quantity} ${exp0.unitName}`;
+    }
   }
   return ml;
 }

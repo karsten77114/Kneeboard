@@ -309,6 +309,10 @@ async function fetchFlightList(flightNum, dateStr, session) {
     dest: f.destinationAirport,
     std: f.std,
     flightNumber: f.flightNumber,
+    // PIC name — try several possible field names from LIDO API
+    pic: (typeof f.pilotInCommand === 'object' ? f.pilotInCommand?.name || f.pilotInCommand?.fullName : f.pilotInCommand)
+      || (typeof f.pic === 'object' ? f.pic?.name : f.pic)
+      || f.crewMember || f.captainName || null,
   }));
 }
 
@@ -375,6 +379,10 @@ function parseBriefingJson(data) {
     dest: leg.destinationAirport,
     ofpNumber: leg.ofpNumber,
     aircraft: leg.aircraftDetails,
+    // PIC name from leg object
+    pic: (typeof leg.pilotInCommand === 'object' ? leg.pilotInCommand?.name || leg.pilotInCommand?.fullName : leg.pilotInCommand)
+      || (typeof leg.pic === 'object' ? leg.pic?.name : leg.pic)
+      || leg.crewMember || leg.captainName || null,
     std: toHHMM(leg.scheduledDepartureTime),
     sta: toHHMM(leg.scheduledTimeOfArrival),
     etd: toHHMM(leg.estimatedDepartureTime),
@@ -469,6 +477,13 @@ function parseOFP(txt) {
   return r;
 }
 
+// 提取完整 ICAO FPL 區塊（含括號），供 WNI 等工具使用
+function extractIcaoFpl(txt) {
+  if (!txt) return null;
+  const m = txt.match(/\(FPL[\s\S]+?\)/);
+  return m ? m[0].trim() : null;
+}
+
 // 解析 ATS clearance route
 function parseATSRoute(txt) {
   if (!txt) return null;
@@ -561,6 +576,7 @@ async function handleRequest(request, env) {
       // 組合 legId
       let legId = null;
       let resolvedDep = dep, resolvedDest = dest;
+      let resolvedPic = null;
 
       if (directLegId) {
         // 直接使用前端傳來的 legId（來自班表，避免 ICAO/IATA 混淆）
@@ -583,6 +599,7 @@ async function handleRequest(request, env) {
         legId = chosen.legId;
         resolvedDep = chosen.dep;
         resolvedDest = chosen.dest;
+        resolvedPic = chosen.pic || null;
       }
 
       if (!legId) {
@@ -647,6 +664,9 @@ async function handleRequest(request, env) {
         dep: parsed.dep,
         dest: parsed.dest,
         ofpNumber: parsed.ofpNumber,
+        pic: parsed.pic || resolvedPic || null,   // PIC name from LIDO
+        legKeys: parsed.legKeys || [],             // ← debug: available leg fields
+        icaoFpl: atsText ? extractIcaoFpl(atsText) : null,  // 完整 (FPL-...) 區塊
         aircraft: parsed.aircraft,
         times: {
           std: parsed.std,

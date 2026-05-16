@@ -1,8 +1,8 @@
 // Tools tab — FDP, Overtime, Pacific HF, Calc tools, External links
 
 const TOOL_LIST = [
-  { id: 'fdp',      label: '⏱ FDP 工時計算',       done: false },
-  { id: 'overtime', label: '💰 加班費 Overtime',    done: false },
+  { id: 'fdp',      label: '⏱ FDP 工時計算',       done: true  },
+  { id: 'overtime', label: '💰 Overtime 計算',      done: true  },
   { id: 'hf',       label: '📻 Pacific HF',         done: true  },
   { id: 'calc',     label: '🔢 計算工具',            done: true  },
   { id: 'links',    label: '🔗 外部連結',            done: true  },
@@ -44,19 +44,21 @@ function _render(container) {
 
 function _renderTool(panel) {
   switch (activeTool) {
-    case 'fdp':      _renderFdpWip(panel);    break;
-    case 'overtime': _renderOtWip(panel);     break;
+    case 'fdp':      _renderFdpWip(panel);   break;
+    case 'overtime': _renderOtWip(panel);    break;
     case 'hf':       _renderHF(panel);        break;
     case 'calc':     _renderCalc(panel);      break;
     case 'links':    _renderLinks(panel);     break;
   }
 }
 
-// ── FDP (WIP) ─────────────────────────────────────────────────────
+// ── FDP Calculator ────────────────────────────────────────────────
 
 function _renderFdpWip(panel) {
   panel.innerHTML = `
-    <h3 style="font-size:16px;font-weight:800;margin-bottom:14px">⏱ FDP / Rest Calculation</h3>
+    <h3 style="font-size:16px;font-weight:800;margin-bottom:14px">⏱ FDP 工時計算</h3>
+
+    <!-- CAR 07-02A 參考表 -->
     <div class="card" style="margin-bottom:12px">
       <div class="card-title">CAR 07-02A 上限速查</div>
       <table style="width:100%;border-collapse:collapse;font-size:13px">
@@ -74,23 +76,188 @@ function _renderFdpWip(panel) {
           </tr>`).join('')}
         </tbody>
       </table>
-      <div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--border);color:var(--text3);font-size:12px">
-        7天最低休息：30h｜連續 WOCL 2天→34h，3天→54h
+      <div style="margin-top:8px;color:var(--text3);font-size:11px;line-height:1.6">
+        WOCL = 02:00–05:00 當地時間｜7天最低休息：30h｜連續 WOCL 2天→34h，3天→54h
       </div>
     </div>
-    <div style="padding:14px;background:var(--surface);border-radius:10px;border:1px solid var(--border);color:var(--text3);font-size:13px">
-      🚧 完整 FDP 計算器（WOCL 時間線、機艙組員分段休息）建置中。
+
+    <!-- 計算器 -->
+    <div class="card">
+      <div class="card-title">FDP 計算器</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">
+        <div>
+          <label class="form-label">機組配置</label>
+          <select class="input" id="fdp-config" style="height:40px">
+            <option value="2P">2P 單組 (Max 14h)</option>
+            <option value="3P">3P 加強 (Max 18h)</option>
+            <option value="4P">4P 雙組 (Max 24h)</option>
+          </select>
+        </div>
+        <div>
+          <label class="form-label">飛行時間 Block</label>
+          <input class="input" id="fdp-ft" type="text" placeholder="例：08:30" style="height:40px">
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px">
+        <div>
+          <label class="form-label">FDP 開始 (UTC)</label>
+          <input class="input" id="fdp-start" type="text" placeholder="例：2330" style="height:40px">
+        </div>
+        <div>
+          <label class="form-label">FDP 結束 (UTC)</label>
+          <input class="input" id="fdp-end" type="text" placeholder="例：1345+1" style="height:40px">
+        </div>
+      </div>
+      <button class="btn btn-primary" id="btn-fdp-calc" style="width:100%">⚡ 計算</button>
+      <div id="fdp-result" style="margin-top:12px"></div>
     </div>`;
+
+  panel.querySelector('#btn-fdp-calc').onclick = _calcFdp;
 }
 
-// ── Overtime (WIP) ────────────────────────────────────────────────
+function _calcFdp() {
+  const config = document.getElementById('fdp-config').value;
+  const startRaw = document.getElementById('fdp-start').value.trim();
+  const endRaw   = document.getElementById('fdp-end').value.trim();
+  const ftRaw    = document.getElementById('fdp-ft').value.trim();
+  const res      = document.getElementById('fdp-result');
+
+  const toMins = (s) => {
+    // supports "HHMM", "HH:MM", "HHMM+1"
+    let dayAdd = 0;
+    const plusM = s.match(/\+(\d)/); if (plusM) dayAdd = parseInt(plusM[1]);
+    const clean = s.replace(/[+\d]+$/, s.includes(':') ? '' : '').replace('+','').trim();
+    const norm  = clean.replace(':','');
+    if (norm.length < 3) return null;
+    const h = parseInt(norm.slice(0,-2)), m = parseInt(norm.slice(-2));
+    if (isNaN(h)||isNaN(m)||m>59) return null;
+    return h*60 + m + dayAdd*1440;
+  };
+
+  const startM = toMins(startRaw), endM = toMins(endRaw), ftM = toMins(ftRaw);
+  if (startM === null || endM === null) { res.innerHTML = '<div style="color:var(--red);font-size:13px">請輸入正確的時間格式（HHMM）</div>'; return; }
+
+  let fdpM = endM - startM;
+  if (fdpM <= 0) fdpM += 1440;
+
+  const maxFdp = config === '2P' ? 840 : config === '3P' ? 1080 : 1440;
+  const maxFt  = config === '2P' ? 600 : 720;
+
+  const fmt = m => `${Math.floor(m/60)}h ${String(m%60).padStart(2,'0')}m`;
+  const fdpOk = fdpM <= maxFdp;
+  const ftOk  = ftM === null || ftM <= maxFt;
+
+  // Max FDP cutoff time (UTC)
+  const cutoffM = (startM + maxFdp) % 1440;
+  const cutoffStr = `${String(Math.floor(cutoffM/60)).padStart(2,'0')}${String(cutoffM%60).padStart(2,'0')}Z`;
+
+  res.innerHTML = `
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
+      <div style="background:var(--surface);border-radius:8px;padding:10px 12px">
+        <div style="font-size:10px;color:var(--text3);text-transform:uppercase;margin-bottom:4px">實際 FDP</div>
+        <div style="font-size:20px;font-weight:800;color:${fdpOk?'var(--green)':'var(--red)'}">${fmt(fdpM)}</div>
+        <div style="font-size:11px;color:var(--text3);margin-top:2px">上限 ${fmt(maxFdp)}</div>
+      </div>
+      ${ftM !== null ? `
+      <div style="background:var(--surface);border-radius:8px;padding:10px 12px">
+        <div style="font-size:10px;color:var(--text3);text-transform:uppercase;margin-bottom:4px">飛行時間</div>
+        <div style="font-size:20px;font-weight:800;color:${ftOk?'var(--green)':'var(--red)'}">${fmt(ftM)}</div>
+        <div style="font-size:11px;color:var(--text3);margin-top:2px">上限 ${fmt(maxFt)}</div>
+      </div>` : '<div></div>'}
+    </div>
+    <div style="background:${fdpOk?'rgba(34,197,94,.1)':'rgba(239,68,68,.1)'};border:1px solid ${fdpOk?'rgba(34,197,94,.3)':'rgba(239,68,68,.3)'};border-radius:8px;padding:10px 14px;display:flex;align-items:center;justify-content:space-between">
+      <span style="font-size:13px;font-weight:700;color:${fdpOk?'var(--green)':'var(--red)'}">${fdpOk?'✓ FDP 在限制內':'✗ FDP 超限'}</span>
+      <span style="font-size:12px;color:var(--text2)">Max截止 ${cutoffStr}</span>
+    </div>
+    ${!fdpOk ? `<div style="margin-top:8px;font-size:12px;color:var(--red);font-weight:700">超限 ${fmt(fdpM-maxFdp)}</div>` : ''}`;
+}
+
+// ── Overtime Calculator ───────────────────────────────────────────
 
 function _renderOtWip(panel) {
   panel.innerHTML = `
-    <div class="state-screen">
-      <div class="state-icon">💰</div>
-      <div class="state-title">加班費計算</div>
-      <div class="state-sub">加班費計算器建置中，列入待辦清單。</div>
+    <h3 style="font-size:16px;font-weight:800;margin-bottom:14px">💰 Overtime 計算</h3>
+    <div class="card">
+      <div class="card-title">Block Time 計算</div>
+      <div style="font-size:12px;color:var(--text2);margin-bottom:12px;line-height:1.6">
+        實際 Block-Out + 計畫飛行時間 + 30 分鐘 = 臨界點<br>
+        Block-In 晚於臨界點即產生 Overtime
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">
+        <div>
+          <label class="form-label">計畫 Block-Out (UTC)</label>
+          <input class="input" id="ot-sched-out" type="text" placeholder="0530" style="height:40px">
+        </div>
+        <div>
+          <label class="form-label">計畫 Block-In (UTC)</label>
+          <input class="input" id="ot-sched-in" type="text" placeholder="1345" style="height:40px">
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px">
+        <div>
+          <label class="form-label">實際 Block-Out (UTC)</label>
+          <input class="input" id="ot-act-out" type="text" placeholder="0545" style="height:40px">
+        </div>
+        <div>
+          <label class="form-label">實際 Block-In (UTC)</label>
+          <input class="input" id="ot-act-in" type="text" placeholder="1400" style="height:40px">
+        </div>
+      </div>
+      <button class="btn btn-primary" id="btn-ot-calc" style="width:100%">⚡ 計算</button>
+      <div id="ot-result" style="margin-top:12px"></div>
+    </div>`;
+
+  panel.querySelector('#btn-ot-calc').onclick = _calcOt;
+}
+
+function _calcOt() {
+  const toMins = s => {
+    const n = String(s).replace(':','').trim();
+    if (n.length < 3) return null;
+    const h = parseInt(n.slice(0,-2)), m = parseInt(n.slice(-2));
+    if (isNaN(h)||isNaN(m)||m>59) return null;
+    return h*60 + m;
+  };
+  const fmt  = m => `${String(Math.floor(((m%1440)+1440)%1440/60)).padStart(2,'0')}${String(((m%1440)+1440)%1440%60).padStart(2,'0')}Z`;
+  const fmtD = m => { const a=Math.abs(m); return `${Math.floor(a/60)}h${String(a%60).padStart(2,'0')}m`; };
+
+  const schedOut = toMins(document.getElementById('ot-sched-out').value);
+  const schedIn  = toMins(document.getElementById('ot-sched-in').value);
+  const actOut   = toMins(document.getElementById('ot-act-out').value);
+  const actIn    = toMins(document.getElementById('ot-act-in').value);
+  const res      = document.getElementById('ot-result');
+
+  if ([schedOut,schedIn,actOut,actIn].some(v=>v===null)) {
+    res.innerHTML = '<div style="color:var(--red);font-size:13px">請填入全部四個時間</div>'; return;
+  }
+
+  let schedFt = schedIn - schedOut; if (schedFt<=0) schedFt+=1440;
+  let actFt   = actIn  - actOut;   if (actFt<=0)   actFt+=1440;
+  const threshold = actOut + schedFt + 30;
+  const thresholdStr = fmt(threshold);
+
+  let actualInAdj = actIn; if (actualInAdj < actOut) actualInAdj += 1440;
+  const otMins = actualInAdj - threshold;
+  const hasOt  = otMins > 0;
+
+  res.innerHTML = `
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
+      <div style="background:var(--surface);border-radius:8px;padding:10px 12px">
+        <div style="font-size:10px;color:var(--text3);text-transform:uppercase;margin-bottom:4px">計畫飛行時間</div>
+        <div style="font-size:18px;font-weight:800;color:var(--text)">${fmtD(schedFt)}</div>
+      </div>
+      <div style="background:var(--surface);border-radius:8px;padding:10px 12px">
+        <div style="font-size:10px;color:var(--text3);text-transform:uppercase;margin-bottom:4px">實際飛行時間</div>
+        <div style="font-size:18px;font-weight:800;color:var(--text)">${fmtD(actFt)}</div>
+      </div>
+    </div>
+    <div style="background:var(--surface);border-radius:8px;padding:10px 14px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center">
+      <span style="font-size:12px;color:var(--text2)">Overtime 臨界點（晚於此時 Block-In）</span>
+      <span style="font-size:16px;font-weight:800;color:var(--gold)">${thresholdStr}</span>
+    </div>
+    <div style="background:${hasOt?'rgba(239,68,68,.1)':'rgba(34,197,94,.1)'};border:1px solid ${hasOt?'rgba(239,68,68,.3)':'rgba(34,197,94,.3)'};border-radius:8px;padding:10px 14px;display:flex;align-items:center;justify-content:space-between">
+      <span style="font-size:13px;font-weight:700;color:${hasOt?'var(--red)':'var(--green)'}">${hasOt?`✗ 超時 ${fmtD(otMins)}`:'✓ 無 Overtime'}</span>
+      <span style="font-size:11px;color:var(--text3)">實際 Block-In ${fmt(actIn)}</span>
     </div>`;
 }
 
@@ -107,7 +274,7 @@ function _renderHF(panel) {
   ];
 
   panel.innerHTML = `
-    <h3 style="font-size:16px;font-weight:800;margin-bottom:14px">📻 Pacific HF Frequencies</h3>
+    <h3 style="font-size:16px;font-weight:800;margin-bottom:14px">📻 太平洋 HF 頻率 Pacific HF</h3>
     ${HF.map(r => `
       <div class="card" style="margin-bottom:10px">
         <div class="card-title">${r.region}</div>
@@ -269,8 +436,8 @@ function _bindCalc(panel) {
     const hw    = (Math.cos(eff * Math.PI/180) * spd).toFixed(1);
     res.innerHTML = `
       <div style="display:flex;gap:20px;flex-wrap:wrap;margin-top:4px">
-        <div><div style="color:var(--text2);font-size:12px">Crosswind</div><div style="font-size:20px;font-weight:800;color:var(--accent)">${xw} kt</div></div>
-        <div><div style="color:var(--text2);font-size:12px">Headwind</div><div style="font-size:20px;font-weight:800;color:${Number(hw)>=0?'var(--green)':'var(--red)'}">${hw} kt</div></div>
+        <div><div style="color:var(--text2);font-size:12px">橫風 Crosswind</div><div style="font-size:20px;font-weight:800;color:var(--accent)">${xw} kt</div></div>
+        <div><div style="color:var(--text2);font-size:12px">逆風 Headwind</div><div style="font-size:20px;font-weight:800;color:${Number(hw)>=0?'var(--green)':'var(--red)'}">${hw} kt</div></div>
       </div>`;
   };
 }
