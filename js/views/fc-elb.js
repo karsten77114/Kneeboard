@@ -26,7 +26,10 @@ function _render(container) {
     return;
   }
 
-  const reg = store.flight?.reg || store.briefing?.aircraft?.registration || store.briefing?.ofp?.reg || '';
+  // Preserve user-typed reg across store re-renders
+  const savedInputVal = document.getElementById('elb-reg')?.value?.trim() || null;
+  const storeReg = store.flight?.reg || store.briefing?.aircraft?.registration || store.briefing?.ofp?.reg || '';
+  const reg = savedInputVal || storeReg;
 
   container.innerHTML = `
     <div class="view-content">

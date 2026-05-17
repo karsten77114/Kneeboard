@@ -1,7 +1,7 @@
 // Tools tab — FDP, Overtime, Pacific HF, Calc tools, External links
 
 const TOOL_LIST = [
-  { id: 'fdp',      label: '⏱ FDP 工時計算',       done: true  },
+  { id: 'fdp',      label: '⏱ Duty Time',           done: true  },
   { id: 'overtime', label: '💰 Overtime 計算',      done: true  },
   { id: 'hf',       label: '📻 Pacific HF',         done: true  },
   { id: 'calc',     label: '🔢 計算工具',            done: true  },
@@ -44,7 +44,7 @@ function _render(container) {
 
 function _renderTool(panel) {
   switch (activeTool) {
-    case 'fdp':      _renderFdpWip(panel);   break;
+    case 'fdp':      _renderDutyTime(panel); break;
     case 'overtime': _renderOtWip(panel);    break;
     case 'hf':       _renderHF(panel);        break;
     case 'calc':     _renderCalc(panel);      break;
@@ -52,124 +52,360 @@ function _renderTool(panel) {
   }
 }
 
-// ── FDP Calculator ────────────────────────────────────────────────
+// ── Duty Time Calculator ──────────────────────────────────────────
 
-function _renderFdpWip(panel) {
+function _renderDutyTime(panel) {
+  const today = new Date().toISOString().slice(0, 10);
   panel.innerHTML = `
-    <h3 style="font-size:16px;font-weight:800;margin-bottom:14px">⏱ FDP 工時計算</h3>
+    <h3 style="font-size:16px;font-weight:800;margin-bottom:14px">⏱ Duty Time</h3>
 
-    <!-- CAR 07-02A 參考表 -->
-    <div class="card" style="margin-bottom:12px">
-      <div class="card-title">CAR 07-02A 上限速查</div>
-      <table style="width:100%;border-collapse:collapse;font-size:13px">
-        <thead><tr style="color:var(--text3)">
-          <th style="padding:6px;text-align:left;border-bottom:1px solid var(--border)">配置</th>
-          <th style="padding:6px;text-align:center;border-bottom:1px solid var(--border)">Max FDP</th>
-          <th style="padding:6px;text-align:center;border-bottom:1px solid var(--border)">Max FT</th>
-        </tr></thead>
-        <tbody>
-          ${[['2P（單組）','14h','10h'],['3P（加強）','18h','12h'],['4P（雙組）','24h','12h']].map(r => `
-          <tr>
-            <td style="padding:8px 6px;color:var(--text)">${r[0]}</td>
-            <td style="padding:8px 6px;text-align:center;font-weight:700;color:var(--accent)">${r[1]}</td>
-            <td style="padding:8px 6px;text-align:center;font-weight:700;color:var(--blue)">${r[2]}</td>
-          </tr>`).join('')}
-        </tbody>
-      </table>
-      <div style="margin-top:8px;color:var(--text3);font-size:11px;line-height:1.6">
-        WOCL = 02:00–05:00 當地時間｜7天最低休息：30h｜連續 WOCL 2天→34h，3天→54h
+    <!-- 機組配置 -->
+    <div class="card" style="margin-bottom:10px">
+      <div class="card-title">機組配置</div>
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-primary" data-cfg="2P" style="flex:1">Single 2P</button>
+        <button class="btn btn-ghost"   data-cfg="3P" style="flex:1">Multiple 3P</button>
+        <button class="btn btn-ghost"   data-cfg="4P" style="flex:1">Double 4P</button>
       </div>
     </div>
 
-    <!-- 計算器 -->
-    <div class="card">
-      <div class="card-title">FDP 計算器</div>
+    <!-- 選項 -->
+    <div class="card" style="margin-bottom:10px">
+      <div class="card-title">選項</div>
+      <div style="display:flex;flex-direction:column;gap:12px">
+        <label style="display:flex;align-items:flex-start;gap:10px;cursor:pointer">
+          <input type="checkbox" id="dt-bunk" style="width:16px;height:16px;margin-top:2px;flex-shrink:0">
+          <span style="font-size:13px;line-height:1.5">Class 1 Bunk PIC Discretion
+            <span style="display:block;font-size:11px;color:var(--text3)">3P: Max FT +4h (→16h)　4P: Max FT +6h (→18h)</span>
+          </span>
+        </label>
+        <label style="display:flex;align-items:flex-start;gap:10px;cursor:pointer">
+          <input type="checkbox" id="dt-tzadapt" style="width:16px;height:16px;margin-top:2px;flex-shrink:0">
+          <span style="font-size:13px;line-height:1.5">Time Diff ≥ 6h & Stay > 48h
+            <span style="display:block;font-size:11px;color:var(--text3)">返回基地後 48h 內不得安排飛航任務</span>
+          </span>
+        </label>
+        <label style="display:flex;align-items:flex-start;gap:10px;cursor:pointer">
+          <input type="checkbox" id="dt-dhd" style="width:16px;height:16px;margin-top:2px;flex-shrink:0">
+          <span style="font-size:13px">DHD after OPS</span>
+        </label>
+        <div>
+          <label style="display:flex;align-items:center;gap:10px;cursor:pointer;margin-bottom:8px">
+            <input type="checkbox" id="dt-acc" style="width:16px;height:16px;flex-shrink:0">
+            <span style="font-size:13px">Rest at Appropriate Accommodation</span>
+          </label>
+          <div id="dt-acc-dur" style="display:none;align-items:center;gap:8px;padding-left:26px">
+            <input class="input" id="dt-acc-hh" type="number" min="0" max="24" placeholder="HH" style="width:64px;height:36px;text-align:center">
+            <span style="color:var(--text3)">h</span>
+            <input class="input" id="dt-acc-mm" type="number" min="0" max="59" placeholder="MM" style="width:64px;height:36px;text-align:center">
+            <span style="color:var(--text3)">m</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 時間 -->
+    <div class="card" style="margin-bottom:10px">
+      <div class="card-title">時間 (UTC)</div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">
         <div>
-          <label class="form-label">機組配置</label>
-          <select class="input" id="fdp-config" style="height:40px">
-            <option value="2P">2P 單組 (Max 14h)</option>
-            <option value="3P">3P 加強 (Max 18h)</option>
-            <option value="4P">4P 雙組 (Max 24h)</option>
+          <label class="form-label">FDP Start — Report Time</label>
+          <div style="display:flex;gap:5px">
+            <input class="input" id="dt-s-date" type="date" value="${today}" style="flex:1;height:38px;font-size:12px;padding:4px 6px">
+            <input class="input" id="dt-s-time" type="time" style="width:88px;height:38px;font-family:monospace;padding:4px 6px">
+          </div>
+        </div>
+        <div>
+          <label class="form-label">FDP End — Block In <span style="color:var(--text3);font-weight:400">(選填)</span></label>
+          <div style="display:flex;gap:5px">
+            <input class="input" id="dt-e-date" type="date" value="${today}" style="flex:1;height:38px;font-size:12px;padding:4px 6px">
+            <input class="input" id="dt-e-time" type="time" style="width:88px;height:38px;font-family:monospace;padding:4px 6px">
+          </div>
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">
+        <div>
+          <label class="form-label">Flight Time Block <span style="color:var(--text3);font-weight:400">(選填)</span></label>
+          <input class="input" id="dt-ft" type="time" style="width:100%;height:38px;font-family:monospace;padding:4px 8px">
+        </div>
+        <div>
+          <label class="form-label">時區 Timezone</label>
+          <select class="input" id="dt-tz" style="height:38px">
+            <option value="480">台北 UTC+8</option>
+            <option value="540">東京 UTC+9</option>
+            <option value="420">曼谷 UTC+7</option>
+            <option value="60">布拉格 UTC+1</option>
+            <option value="-480">洛杉磯 UTC−8</option>
+            <option value="-420">鳳凰城 UTC−7</option>
           </select>
         </div>
-        <div>
-          <label class="form-label">飛行時間 Block</label>
-          <input class="input" id="fdp-ft" type="text" placeholder="例：08:30" style="height:40px">
+      </div>
+      <div>
+        <label class="form-label">Next Duty Report (UTC) <span style="color:var(--text3);font-weight:400">(選填)</span></label>
+        <div style="display:flex;gap:5px">
+          <input class="input" id="dt-n-date" type="date" value="${today}" style="flex:1;height:38px;font-size:12px;padding:4px 6px">
+          <input class="input" id="dt-n-time" type="time" style="width:88px;height:38px;font-family:monospace;padding:4px 6px">
         </div>
       </div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px">
-        <div>
-          <label class="form-label">FDP 開始 (UTC)</label>
-          <input class="input" id="fdp-start" type="text" placeholder="例：2330" style="height:40px">
-        </div>
-        <div>
-          <label class="form-label">FDP 結束 (UTC)</label>
-          <input class="input" id="fdp-end" type="text" placeholder="例：1345+1" style="height:40px">
-        </div>
+    </div>
+
+    <button class="btn btn-primary" id="btn-dt-calc" style="width:100%;margin-bottom:14px">⚡ Calculate</button>
+    <div id="dt-result" style="margin-bottom:14px"></div>
+
+    <!-- CAR 07-02A 規定 -->
+    <div class="card">
+      <div style="display:flex;align-items:center;justify-content:space-between;cursor:pointer" id="dt-ref-hdr">
+        <div style="font-size:13px;font-weight:700;color:var(--text2)">📋 CAR 07-02A 規定說明</div>
+        <span id="dt-ref-arrow" style="color:var(--text3);font-size:12px">▼</span>
       </div>
-      <button class="btn btn-primary" id="btn-fdp-calc" style="width:100%">⚡ 計算</button>
-      <div id="fdp-result" style="margin-top:12px"></div>
+      <div id="dt-ref-body" style="display:none;margin-top:12px">
+        <div style="font-size:11px;color:var(--text3);margin-bottom:8px">REF.: CAR 07-02A ART. 37/37-2/38/38-3/38-4/39/41/42/43/43-1</div>
+        <div style="overflow-x:auto">
+        <table style="width:100%;border-collapse:collapse;font-size:12px;min-width:320px">
+          <thead><tr>
+            <th style="padding:6px 4px;text-align:left;border-bottom:1px solid var(--border);color:var(--text3)"></th>
+            <th style="padding:6px 4px;text-align:center;border-bottom:1px solid var(--border);color:var(--blue)">Single<br>2P</th>
+            <th style="padding:6px 4px;text-align:center;border-bottom:1px solid var(--border);color:var(--gold)">Multiple<br>3P</th>
+            <th style="padding:6px 4px;text-align:center;border-bottom:1px solid var(--border);color:var(--green)">Double<br>4P</th>
+          </tr></thead>
+          <tbody>
+            ${[
+              ['Min Rest Before Duty',       '10h','10h','10h'],
+              ['Min Rest After (FT≤8h)',      '10h','10h','10h'],
+              ['Min Rest After (8h<FT≤10h)', '18h','—',  '—'],
+              ['Min Rest After (8h<FT≤12h)', '—',  '18h','—'],
+              ['Min Rest After (12h<FT≤16h)','—',  '18h','—'],
+              ['Min Rest After (8h<FT≤16h)', '—',  '—',  '18h'],
+              ['Min Rest After (16h<FT≤18h)','—',  '—',  '22h'],
+              ['Max FDP',                    '14h','18h','24h'],
+              ['Max FT (無 Class 1 Bunk)',   '10h','12h','12h'],
+              ['Max FT (有 Class 1 Bunk)',   '—',  '16h','18h'],
+              ['Min Rest in 7 Days',         '30h','30h','30h'],
+              ['Max FT in 7 Days',           '32h','—',  '—'],
+            ].map((r,i) => `
+            <tr style="${i%2===0?'background:rgba(255,255,255,0.02)':''}">
+              <td style="padding:5px 4px;color:var(--text2);font-size:11px">${r[0]}</td>
+              <td style="padding:5px 4px;text-align:center;font-weight:700;color:${r[1]==='—'?'var(--text3)':'var(--blue)'}">${r[1]}</td>
+              <td style="padding:5px 4px;text-align:center;font-weight:700;color:${r[2]==='—'?'var(--text3)':'var(--gold)'}">${r[2]}</td>
+              <td style="padding:5px 4px;text-align:center;font-weight:700;color:${r[3]==='—'?'var(--text3)':'var(--green)'}">${r[3]}</td>
+            </tr>`).join('')}
+          </tbody>
+        </table>
+        </div>
+        <div style="margin-top:12px;font-size:12px;color:var(--text2);line-height:1.8">
+          <div style="font-weight:700;color:var(--yellow);margin-bottom:4px">⚠ WOCL (02:00–05:00 LT)</div>
+          <div>· 不得連續超過 3 天指派觸及 WOCL 之任務</div>
+          <div>· 連續 2 天 WOCL → 任務後最低 <b>34h</b> 休息</div>
+          <div>· 連續 3 天 WOCL → 任務後最低 <b>54h</b> 休息</div>
+          <div style="color:var(--text3)">· 例外：每次 WOCL 後皆有 ≥14h 休息，則免除 34/54h 限制</div>
+          <div style="font-weight:700;color:var(--text);margin-top:8px;margin-bottom:4px">🏨 Accommodation FDP 延長 (Art. 41)</div>
+          <div>· Not Started：Max FDP 不變，實際 FDP = 原始 FDP − 休息時間</div>
+          <div>· Started：Max FDP + 休息時間 × 50%（上限 24h）</div>
+          <div style="font-weight:700;color:var(--text);margin-top:8px;margin-bottom:4px">🌍 時區適應 (Art. 43)</div>
+          <div>· 時差 ≥ 6h & 停留 > 48h：返基地後 48h 內不得安排飛航任務</div>
+        </div>
+        <div style="margin-top:10px;font-size:10px;color:var(--text3);text-align:center">Non-operational reference only · Refer to company manuals</div>
+      </div>
     </div>`;
 
-  panel.querySelector('#btn-fdp-calc').onclick = _calcFdp;
-}
+  // Config button selection
+  let selCfg = '2P';
+  panel.querySelectorAll('[data-cfg]').forEach(btn => {
+    btn.onclick = () => {
+      selCfg = btn.dataset.cfg;
+      panel.querySelectorAll('[data-cfg]').forEach(b => {
+        b.className = `btn ${b.dataset.cfg === selCfg ? 'btn-primary' : 'btn-ghost'}`;
+        b.style.flex = '1';
+      });
+    };
+  });
 
-function _calcFdp() {
-  const config = document.getElementById('fdp-config').value;
-  const startRaw = document.getElementById('fdp-start').value.trim();
-  const endRaw   = document.getElementById('fdp-end').value.trim();
-  const ftRaw    = document.getElementById('fdp-ft').value.trim();
-  const res      = document.getElementById('fdp-result');
-
-  const toMins = (s) => {
-    // supports "HHMM", "HH:MM", "HHMM+1"
-    let dayAdd = 0;
-    const plusM = s.match(/\+(\d)/); if (plusM) dayAdd = parseInt(plusM[1]);
-    const clean = s.replace(/[+\d]+$/, s.includes(':') ? '' : '').replace('+','').trim();
-    const norm  = clean.replace(':','');
-    if (norm.length < 3) return null;
-    const h = parseInt(norm.slice(0,-2)), m = parseInt(norm.slice(-2));
-    if (isNaN(h)||isNaN(m)||m>59) return null;
-    return h*60 + m + dayAdd*1440;
+  // Accommodation toggle
+  panel.querySelector('#dt-acc').onchange = e => {
+    panel.querySelector('#dt-acc-dur').style.display = e.target.checked ? 'flex' : 'none';
   };
 
-  const startM = toMins(startRaw), endM = toMins(endRaw), ftM = toMins(ftRaw);
-  if (startM === null || endM === null) { res.innerHTML = '<div style="color:var(--red);font-size:13px">請輸入正確的時間格式（HHMM）</div>'; return; }
+  // Reference table toggle
+  panel.querySelector('#dt-ref-hdr').onclick = () => {
+    const body  = panel.querySelector('#dt-ref-body');
+    const arrow = panel.querySelector('#dt-ref-arrow');
+    const open  = body.style.display !== 'none';
+    body.style.display  = open ? 'none' : 'block';
+    arrow.textContent   = open ? '▼' : '▲';
+  };
 
-  let fdpM = endM - startM;
-  if (fdpM <= 0) fdpM += 1440;
+  panel.querySelector('#btn-dt-calc').onclick = () => _calcDutyTime(panel, selCfg);
+}
 
-  const maxFdp = config === '2P' ? 840 : config === '3P' ? 1080 : 1440;
-  const maxFt  = config === '2P' ? 600 : 720;
+function _calcDutyTime(panel, cfg) {
+  const res = panel.querySelector('#dt-result');
 
-  const fmt = m => `${Math.floor(m/60)}h ${String(m%60).padStart(2,'0')}m`;
-  const fdpOk = fdpM <= maxFdp;
-  const ftOk  = ftM === null || ftM <= maxFt;
+  const hasBunk    = panel.querySelector('#dt-bunk')?.checked;
+  const hasTzAdapt = panel.querySelector('#dt-tzadapt')?.checked;
+  const hasAcc     = panel.querySelector('#dt-acc')?.checked;
+  const tzOff      = parseInt(panel.querySelector('#dt-tz')?.value || '480'); // minutes east of UTC
 
-  // Max FDP cutoff time (UTC)
-  const cutoffM = (startM + maxFdp) % 1440;
-  const cutoffStr = `${String(Math.floor(cutoffM/60)).padStart(2,'0')}${String(cutoffM%60).padStart(2,'0')}Z`;
+  // Parse date + time → absolute minutes (Unix epoch / 60)
+  const parseDT = (dateId, timeId) => {
+    const d = panel.querySelector(`#${dateId}`)?.value;
+    const t = panel.querySelector(`#${timeId}`)?.value;
+    if (!d || !t) return null;
+    const ms = new Date(`${d}T${t}:00Z`).getTime();
+    return isNaN(ms) ? null : Math.floor(ms / 60000);
+  };
 
-  res.innerHTML = `
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
-      <div style="background:var(--surface);border-radius:8px;padding:10px 12px">
-        <div style="font-size:10px;color:var(--text3);text-transform:uppercase;margin-bottom:4px">實際 FDP</div>
-        <div style="font-size:20px;font-weight:800;color:${fdpOk?'var(--green)':'var(--red)'}">${fmt(fdpM)}</div>
-        <div style="font-size:11px;color:var(--text3);margin-top:2px">上限 ${fmt(maxFdp)}</div>
+  const startMin = parseDT('dt-s-date', 'dt-s-time');
+  if (startMin === null) {
+    res.innerHTML = '<div style="color:var(--red);font-size:13px;padding:8px 0">請填入 FDP 開始時間</div>';
+    return;
+  }
+  const endMin  = parseDT('dt-e-date', 'dt-e-time');
+  const nextMin = parseDT('dt-n-date', 'dt-n-time');
+
+  // Flight time in minutes
+  const ftRaw = panel.querySelector('#dt-ft')?.value;
+  const ftMin = (() => {
+    if (!ftRaw) return null;
+    const [h, m] = ftRaw.split(':').map(Number);
+    return (!isNaN(h) && !isNaN(m)) ? h * 60 + m : null;
+  })();
+
+  // Accommodation rest duration
+  let accMin = 0;
+  if (hasAcc) {
+    const ah = parseInt(panel.querySelector('#dt-acc-hh')?.value || '0') || 0;
+    const am = parseInt(panel.querySelector('#dt-acc-mm')?.value || '0') || 0;
+    accMin = ah * 60 + am;
+  }
+
+  // Max FDP
+  const maxFdpBase = cfg === '2P' ? 840 : cfg === '3P' ? 1080 : 1440;
+  // Accommodation "Started" mode: extend by 50% of rest, cap at 24h
+  const maxFdpEff = hasAcc && accMin > 0
+    ? Math.min(maxFdpBase + Math.floor(accMin * 0.5), 1440)
+    : maxFdpBase;
+
+  // Max FT
+  const maxFtMap = { '2P':{base:600,bunk:600}, '3P':{base:720,bunk:960}, '4P':{base:720,bunk:1080} };
+  const maxFt = hasBunk ? maxFtMap[cfg].bunk : maxFtMap[cfg].base;
+
+  // Format helpers
+  const fmtUtc = m => {
+    const d = new Date(m * 60000);
+    return d.toUTCString().slice(17, 22) + 'Z';
+  };
+  const fmtDate = m => {
+    const d = new Date(m * 60000);
+    return (d.getUTCMonth()+1) + '/' + String(d.getUTCDate()).padStart(2,'0');
+  };
+  const fmtDur = m => {
+    const abs = Math.abs(m);
+    return `${Math.floor(abs/60)}h ${String(abs%60).padStart(2,'0')}m`;
+  };
+
+  // WOCL overlap check (02:00–05:00 LT)
+  const fdpLen   = endMin !== null ? endMin - startMin : maxFdpEff;
+  const fdpEndAbs = startMin + (fdpLen > 0 ? fdpLen : maxFdpEff);
+  const _overlapsWocl = (s, e, tz) => {
+    const sl = s + tz; const el = e + tz;
+    const sd = Math.floor(sl / 1440); const ed = Math.floor(el / 1440);
+    for (let d = sd; d <= ed; d++) {
+      if (sl < d * 1440 + 300 && el > d * 1440 + 120) return true;
+    }
+    return false;
+  };
+  const woclHit = _overlapsWocl(startMin, fdpEndAbs, tzOff);
+
+  // Min rest after duty
+  const _minRest = (cfg, ft) => {
+    if (ft === null || ft / 60 <= 8) return 600;
+    if (cfg === '2P') return 1080;
+    if (cfg === '3P') return 1080;
+    if (cfg === '4P') return (ft / 60 <= 16) ? 1080 : 1320;
+    return 600;
+  };
+  const minRest = _minRest(cfg, ftMin);
+
+  // Actual FDP
+  const fdpMin  = (endMin !== null && endMin > startMin) ? endMin - startMin : null;
+  const fdpOk   = fdpMin !== null ? fdpMin <= maxFdpEff : null;
+  const ftOk    = ftMin  !== null ? ftMin  <= maxFt     : null;
+  const cutoffMin = startMin + maxFdpEff;
+
+  // Build result HTML
+  let html = `<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">`;
+
+  // Max Duty cutoff
+  html += `<div style="background:var(--surface);border-radius:8px;padding:10px 12px">
+    <div style="font-size:10px;color:var(--text3);text-transform:uppercase;margin-bottom:4px">⏱ Max Duty 截止</div>
+    <div style="font-size:18px;font-weight:800;color:var(--gold);font-family:monospace">${fmtUtc(cutoffMin)}</div>
+    <div style="font-size:11px;color:var(--text3);margin-top:2px">${fmtDate(cutoffMin)} · 上限 ${fmtDur(maxFdpEff)}${hasAcc && accMin > 0 ? ' (+Acc)' : ''}</div>
+  </div>`;
+
+  // Max FT
+  html += `<div style="background:var(--surface);border-radius:8px;padding:10px 12px">
+    <div style="font-size:10px;color:var(--text3);text-transform:uppercase;margin-bottom:4px">✈ Max Flight Time</div>
+    <div style="font-size:18px;font-weight:800;color:var(--blue);font-family:monospace">${fmtDur(maxFt)}</div>
+    <div style="font-size:11px;margin-top:2px;${ftMin !== null ? `font-weight:700;color:${ftOk?'var(--green)':'var(--red)'}` : 'color:var(--text3)'}">
+      ${ftMin !== null ? `實際 ${fmtDur(ftMin)} ${ftOk ? '✓' : '✗ 超限'}` : `${hasBunk && cfg !== '2P' ? 'With Bunk' : 'Standard'}`}
+    </div>
+  </div>`;
+
+  html += `</div>`;
+
+  // Actual FDP status
+  if (fdpMin !== null) {
+    html += `<div style="background:${fdpOk?'rgba(34,197,94,.1)':'rgba(239,68,68,.1)'};border:1px solid ${fdpOk?'rgba(34,197,94,.3)':'rgba(239,68,68,.3)'};border-radius:8px;padding:10px 14px;display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+      <span style="font-size:13px;font-weight:700;color:${fdpOk?'var(--green)':'var(--red)'}">
+        ${fdpOk ? '✓ FDP 在限制內' : `✗ FDP 超限 ${fmtDur(fdpMin - maxFdpEff)}`}
+      </span>
+      <span style="font-size:16px;font-weight:800;font-family:monospace;color:${fdpOk?'var(--green)':'var(--red)'}">${fmtDur(fdpMin)}</span>
+    </div>`;
+  }
+
+  // WOCL warning
+  if (woclHit) {
+    html += `<div style="background:rgba(251,191,36,.1);border:1px solid rgba(251,191,36,.3);border-radius:8px;padding:10px 14px;display:flex;gap:10px;align-items:flex-start;margin-bottom:8px">
+      <span style="font-size:18px;line-height:1">⚠</span>
+      <div>
+        <div style="font-size:13px;font-weight:700;color:var(--yellow)">觸及 WOCL (02:00–05:00 LT)</div>
+        <div style="font-size:11px;color:var(--text3);margin-top:3px">連續 2 天 → 34h 休息　連續 3 天 → 54h 休息<br>（各有 ≥14h 休息則免除）</div>
       </div>
-      ${ftM !== null ? `
-      <div style="background:var(--surface);border-radius:8px;padding:10px 12px">
-        <div style="font-size:10px;color:var(--text3);text-transform:uppercase;margin-bottom:4px">飛行時間</div>
-        <div style="font-size:20px;font-weight:800;color:${ftOk?'var(--green)':'var(--red)'}">${fmt(ftM)}</div>
-        <div style="font-size:11px;color:var(--text3);margin-top:2px">上限 ${fmt(maxFt)}</div>
-      </div>` : '<div></div>'}
+    </div>`;
+  }
+
+  // Min rest after duty
+  html += `<div style="background:var(--surface);border-radius:8px;padding:10px 14px;margin-bottom:8px">
+    <div style="font-size:10px;color:var(--text3);text-transform:uppercase;margin-bottom:6px">任務後最低休息</div>
+    <div style="display:flex;align-items:center;justify-content:space-between">
+      <span style="font-size:12px;color:var(--text2)">${cfg}${ftMin !== null ? ` · FT ${fmtDur(ftMin)}` : ' · FT 未輸入 (以≤8h計)'}</span>
+      <span style="font-size:17px;font-weight:800;color:var(--text)">${fmtDur(minRest)}</span>
     </div>
-    <div style="background:${fdpOk?'rgba(34,197,94,.1)':'rgba(239,68,68,.1)'};border:1px solid ${fdpOk?'rgba(34,197,94,.3)':'rgba(239,68,68,.3)'};border-radius:8px;padding:10px 14px;display:flex;align-items:center;justify-content:space-between">
-      <span style="font-size:13px;font-weight:700;color:${fdpOk?'var(--green)':'var(--red)'}">${fdpOk?'✓ FDP 在限制內':'✗ FDP 超限'}</span>
-      <span style="font-size:12px;color:var(--text2)">Max截止 ${cutoffStr}</span>
-    </div>
-    ${!fdpOk ? `<div style="margin-top:8px;font-size:12px;color:var(--red);font-weight:700">超限 ${fmt(fdpM-maxFdp)}</div>` : ''}`;
+    ${endMin !== null ? `<div style="font-size:11px;color:var(--text3);margin-top:5px">最早可報到：<b style="color:var(--text2)">${fmtUtc(endMin + minRest)}</b> (${fmtDate(endMin + minRest)})</div>` : ''}
+  </div>`;
+
+  // Next duty rest check
+  if (endMin !== null && nextMin !== null) {
+    const restActual  = nextMin - endMin;
+    const restOk      = restActual >= minRest;
+    html += `<div style="background:${restOk?'rgba(34,197,94,.1)':'rgba(239,68,68,.1)'};border:1px solid ${restOk?'rgba(34,197,94,.3)':'rgba(239,68,68,.3)'};border-radius:8px;padding:10px 14px;margin-bottom:8px">
+      <div style="display:flex;align-items:center;justify-content:space-between">
+        <span style="font-size:13px;font-weight:700;color:${restOk?'var(--green)':'var(--red)'}">${restOk ? '✓ 休息充足' : '✗ 休息不足'}</span>
+        <span style="font-size:12px;color:var(--text2)">實際 ${fmtDur(restActual)} / 最低 ${fmtDur(minRest)}</span>
+      </div>
+      ${!restOk ? `<div style="font-size:11px;color:var(--red);margin-top:4px">不足 ${fmtDur(minRest - restActual)}</div>` : ''}
+    </div>`;
+  }
+
+  // Time zone adaptation note
+  if (hasTzAdapt) {
+    html += `<div style="background:rgba(96,165,250,.1);border:1px solid rgba(96,165,250,.3);border-radius:8px;padding:10px 14px">
+      <div style="font-size:13px;font-weight:700;color:var(--blue)">🌍 時區適應規定</div>
+      <div style="font-size:11px;color:var(--text2);margin-top:4px;line-height:1.6">時差 ≥ 6h & 停留 > 48h：返回基地後 48h 內不得安排飛航任務<br>（DHD 含最低休息則可）</div>
+    </div>`;
+  }
+
+  res.innerHTML = html;
 }
 
 // ── Overtime Calculator ───────────────────────────────────────────

@@ -312,8 +312,9 @@ function _wxInlineHtml(c) {
 
 function _extraFuelInputHtml(o, crew) {
   if (o.toFuel == null) return '';
-  const extra = crew.extra_fuel != null ? crew.extra_fuel : '';
-  const total = (extra !== '') ? o.toFuel + Number(extra) : o.toFuel;
+  const extra   = crew.extra_fuel != null ? crew.extra_fuel : '';
+  const taxiFuel = o.taxiFuel || 0;
+  const total   = o.toFuel + taxiFuel + (extra !== '' ? Number(extra) : 0);
   return `
     <div style="border-top:1px solid var(--border);margin-top:10px;padding-top:10px">
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
@@ -323,11 +324,14 @@ function _extraFuelInputHtml(o, crew) {
           style="width:90px;height:32px;padding:4px 8px;text-align:right;font-size:13px"/>
         <span style="font-size:12px;color:var(--text2)">kg</span>
       </div>
-      <div style="background:var(--surface);border-radius:8px;padding:8px 12px;display:flex;justify-content:space-between;align-items:center">
-        <span style="font-weight:700;font-size:13px">Total Fuel
-          <span style="font-size:10px;color:var(--text3);font-weight:400">（報告油量）</span>
-        </span>
-        <span id="c-total-fuel" style="color:var(--gold);font-size:17px;font-weight:800;font-family:'JetBrains Mono','SF Mono',monospace">${fuelStr(total)}</span>
+      <div style="background:var(--surface);border-radius:8px;padding:8px 12px">
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <span style="font-weight:700;font-size:13px">Block Fuel
+            <span style="font-size:10px;color:var(--text3);font-weight:400">（報告油量 = TO + Taxi + 追加）</span>
+          </span>
+          <span id="c-total-fuel" style="color:var(--gold);font-size:17px;font-weight:800;font-family:'JetBrains Mono','SF Mono',monospace">${fuelStr(total)}</span>
+        </div>
+        ${taxiFuel ? `<div style="font-size:11px;color:var(--text3);margin-top:4px;text-align:right">TO ${fuelStr(o.toFuel)} + Taxi ${fuelStr(taxiFuel)}${extra !== '' && Number(extra) > 0 ? ` + Add ${fuelStr(Number(extra))}` : ''}</div>` : ''}
       </div>
     </div>`;
 }
@@ -413,11 +417,16 @@ function _crewText(fltNo, dep, dest, t, cruiseFL, crew, block) {
     crew.arr_gate ? `ARR Gate ${crew.arr_gate}` : '',
   ].filter(Boolean).join('  ·  ');
 
-  // Fuel total
+  // Fuel total (Block Fuel = TO Fuel + Taxi + Capt Add)
   const toFuel   = store.briefing?.ofp?.toFuel;
+  const taxiFuel = store.briefing?.ofp?.taxiFuel || 0;
   const extraFuel = crew.extra_fuel || 0;
-  const fuelLine = toFuel != null
-    ? `Fuel Order: ${fuelStr(toFuel + extraFuel)}${extraFuel ? ` (OFP ${fuelStr(toFuel)} + Capt add ${fuelStr(extraFuel)})` : ''}`
+  const blockFuel = toFuel != null ? toFuel + taxiFuel + extraFuel : null;
+  const fuelLine = blockFuel != null
+    ? `Fuel Order: ${fuelStr(blockFuel)}` +
+      (taxiFuel || extraFuel
+        ? ` (TO ${fuelStr(toFuel)}${taxiFuel ? ` + Taxi ${fuelStr(taxiFuel)}` : ''}${extraFuel ? ` + Add ${fuelStr(extraFuel)}` : ''})`
+        : '')
     : '';
 
   // MEL / CDL summary from ELB
@@ -482,10 +491,11 @@ function _bindCrew(crewKey, fltNo, dep, dest, t, cruiseFL, block, o) {
   if (extraFuelEl) {
     extraFuelEl.addEventListener('input', () => {
       _save();
-      const extra   = parseInt(extraFuelEl.value || '0', 10) || 0;
-      const toFuel  = o?.toFuel ?? store.briefing?.ofp?.toFuel ?? 0;
-      const totalEl = document.getElementById('c-total-fuel');
-      if (totalEl) totalEl.textContent = fuelStr(toFuel + extra);
+      const extra    = parseInt(extraFuelEl.value || '0', 10) || 0;
+      const toFuel   = o?.toFuel ?? store.briefing?.ofp?.toFuel ?? 0;
+      const taxiFuel = o?.taxiFuel ?? store.briefing?.ofp?.taxiFuel ?? 0;
+      const totalEl  = document.getElementById('c-total-fuel');
+      if (totalEl) totalEl.textContent = fuelStr(toFuel + taxiFuel + extra);
     });
   }
 
