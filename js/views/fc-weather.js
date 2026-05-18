@@ -815,8 +815,8 @@ function _timeToggleBar(cls, activeKey) {
 // ══════════════════════════════════════════════════════════════════
 
 function _renderWni(panel) {
-  const b   = store.briefing;
-  const fpl = b?.icaoFpl || null;   // 完整 (FPL-...) 區塊，由 Worker 提取
+  const b = store.briefing;
+  const fpl = b?.icaoFpl || null;
 
   panel.innerHTML = `
     <div class="view-content" style="padding-top:8px">
@@ -827,7 +827,7 @@ function _renderWni(panel) {
           登入後直接貼上，即可查看航路天氣、SIGMET、垂直剖面圖等資料。
         </div>
         <button id="wni-copy-btn" style="width:100%;padding:12px;font-size:15px;font-weight:700;border-radius:10px;border:1px solid var(--gold);color:var(--gold);background:rgba(196,154,60,.12);cursor:pointer;${!fpl ? 'opacity:.4;pointer-events:none' : ''}">
-          ${fpl ? '一鍵複製 ICAO FPL ＆ 開啟 WNI ↗' : '尚無 ICAO FPL 資料（請先載入航班簡報）'}
+          ${fpl ? '一鍵複製 FPL ＆ 開啟 WNI ↗' : '尚無 FPL 資料（請先載入航班簡報）'}
         </button>
       </div>
     </div>`;
@@ -980,12 +980,11 @@ function _renderSigwx(panel) {
 // Turbli
 // ══════════════════════════════════════════════════════════════════
 
-function _buildTurbliUrl(dep, dest, fltNo) {
+function _buildTurbliUrl(dep, dest) {
   if (!dep || !dest) return 'https://turbli.com';
   // Turbli only shows forecasts within ~36h — always use today's UTC date
   const today = new Date().toISOString().slice(0, 10);
-  const flightSuffix = fltNo ? `JX-${fltNo}/` : '';
-  return `https://turbli.com/${dep}/${dest}/${today}/${flightSuffix}`;
+  return `https://turbli.com/${dep}/${dest}/${today}/`;
 }
 
 function _renderTurbli(panel) {
@@ -998,7 +997,7 @@ function _renderTurbli(panel) {
   const depIata  = toIATA(depRaw)  || depRaw;
   const destIata = toIATA(destRaw) || destRaw;
   const fltNo   = (b?.flightNumber || f?.flightNumber || '').replace(/^JX/i, '');
-  const url = depIata && destIata ? _buildTurbliUrl(depIata, destIata, fltNo) : 'https://turbli.com';
+  const url = depIata && destIata ? _buildTurbliUrl(depIata, destIata) : 'https://turbli.com';
 
   panel.innerHTML = `
     <div class="card">

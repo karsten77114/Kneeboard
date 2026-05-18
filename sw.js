@@ -1,4 +1,4 @@
-const CACHE = 'kneeboard-v17';
+const CACHE = 'kneeboard-v14';
 const PRECACHE = [
   './',
   './index.html',
@@ -23,14 +23,14 @@ const PRECACHE = [
 ];
 
 self.addEventListener('install', e => {
-  console.log('[SW] Installing v17...');
+  console.log('[SW] Installing v11...');
   e.waitUntil(
     caches.open(CACHE).then(c => c.addAll(PRECACHE)).then(() => self.skipWaiting())
   );
 });
 
 self.addEventListener('activate', e => {
-  console.log('[SW] Activating v17...');
+  console.log('[SW] Activating v11...');
   e.waitUntil(
     caches.keys().then(keys =>
       Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k)))

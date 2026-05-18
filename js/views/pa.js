@@ -558,7 +558,7 @@ function _renderQuickInputs(container) {
       <div>
         <div style="font-size:11px;color:var(--text2);margin-bottom:5px">備降機場 Alternate Airport <span style="font-size:9px;color:#93c5fd">← OFP ALTN</span></div>
         <input id="qi-altn" class="input input-upper" placeholder="e.g. KHH" maxlength="6"
-          style="height:44px;font-size:18px;font-weight:800;letter-spacing:2px"
+          style="width:120px;height:44px;font-size:18px;font-weight:800;letter-spacing:2px"
           value="${_paV.altnApt || ''}">
       </div>`;
     setTimeout(() => {
@@ -583,7 +583,7 @@ function _renderQuickInputs(container) {
       <div>
         <div style="font-size:11px;color:var(--text2);margin-bottom:5px">座位號碼 Seat Number</div>
         <input id="qi-seat" class="input input-upper" placeholder="e.g. 24A" maxlength="4"
-          style="height:44px;font-size:18px;font-weight:800;letter-spacing:2px"
+          style="width:100px;height:44px;font-size:18px;font-weight:800;letter-spacing:2px"
           value="${_paV.seatNo || ''}">
       </div>`;
     setTimeout(() => {
@@ -602,7 +602,7 @@ function _renderQuickInputs(container) {
 }
 
 // ── Descent special form ──────────────────────────────────────────
-const _INP = 'width:100%;height:44px;font-size:16px;font-weight:700;background:var(--card);border:1.5px solid var(--border);border-radius:8px;color:var(--text);padding:0 12px;-webkit-appearance:none;appearance:none;box-sizing:border-box';
+const _INP = 'height:44px;font-size:16px;font-weight:700;background:var(--card);border:1.5px solid var(--border);border-radius:8px;color:var(--text);padding:0 12px;-webkit-appearance:none;appearance:none;box-sizing:border-box';
 const _SEL = _INP + ';background-image:url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'12\' height=\'8\'%3E%3Cpath fill=\'%2394a3b8\' d=\'M6 8L0 0h12z\'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 12px center;padding-right:32px';
 
 function _renderDescentForm(container) {
@@ -635,7 +635,7 @@ function _renderDescentForm(container) {
       <div>
         <div style="font-size:11px;color:var(--text2);margin-bottom:5px">✈️ ETA <span style="font-size:9px;font-weight:800;color:var(--amber)">UTC</span> <span style="font-size:9px;color:#93c5fd">← OFP</span></div>
         <input type="text" id="pd-eta" inputmode="numeric" placeholder="HH:MM"
-          style="${_INP}" value="${etaUTC}" maxlength="5"
+          style="${_INP};width:120px" value="${etaUTC}" maxlength="5"
           autocomplete="off" spellcheck="false">
         <div id="pd-eta-local" style="font-size:10px;color:var(--text3);margin-top:3px;padding-left:2px"></div>
       </div>
@@ -646,11 +646,11 @@ function _renderDescentForm(container) {
     </div>
     <div style="margin-bottom:10px">
       <div style="font-size:11px;color:var(--text2);margin-bottom:5px">📅 當地日期 <span style="font-size:9px;color:var(--green)">← 自動</span></div>
-      <input type="date" id="pd-date" style="${_INP};font-size:15px" value="${loc.date}">
+      <input type="date" id="pd-date" style="${_INP};width:160px;font-size:15px" value="${loc.date}">
     </div>
     <div style="margin-bottom:10px">
       <div style="font-size:11px;color:var(--text2);margin-bottom:5px">🌤 天氣狀況</div>
-      <select id="pd-wx" style="${_SEL}">${wxOpts}</select>
+      <select id="pd-wx" style="${_SEL};width:220px">${wxOpts}</select>
     </div>
     <div>
       <div style="font-size:11px;color:var(--text2);margin-bottom:5px">🌡 地面氣溫</div>
@@ -767,7 +767,7 @@ function _applyStyles() {
   const s = document.createElement('style');
   s.id = 'pa-style';
   s.textContent = `
-    .pa-wrap { display:flex; flex-direction:column; padding:12px; gap:10px; }
+    .pa-wrap { display:flex; flex-direction:column; padding:12px; gap:10px; max-width:720px; margin:0 auto; }
 
     .pa-cap-bar {
       display:flex; align-items:center; gap:10px;
