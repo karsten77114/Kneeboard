@@ -194,19 +194,29 @@ function _arcCard(dep, dest, fltNo, t, cruiseFL, block, remaining, reg, date, cr
       <!-- Weather + Gate inputs row -->
       <div style="margin-top:12px;border-top:1px solid var(--border);padding-top:10px">
         <div class="grid2f" style="gap:12px;margin-bottom:10px">
+          <!-- DEP: left-aligned -->
           <div>
             <div class="wx-hdr">${toICAO(dep)} WX</div>
             <div id="wx-${toICAO(dep)}-inline" class="wx-body-sm"><div class="wx-spin-sm"></div></div>
-            <div class="brief-lbl" style="margin-top:8px">Dep Gate</div>
-            <input id="c-dep" class="input" type="text" style="height:36px;padding:6px 10px"
-              value="${_esc(crew.dep_gate||'')}" placeholder="B3"/>
+            <div style="display:flex;align-items:center;gap:6px;margin-top:8px">
+              <span class="brief-lbl" style="margin:0">Gate</span>
+              <input id="c-dep" class="input" type="text"
+                style="width:72px;height:32px;padding:4px 8px;text-align:center;font-weight:700"
+                value="${_esc(crew.dep_gate||'')}" placeholder="B3"/>
+              <span id="c-dep-auto" style="font-size:11px;color:var(--green)"></span>
+            </div>
           </div>
-          <div>
+          <!-- ARR: right-aligned -->
+          <div style="text-align:right">
             <div class="wx-hdr">${toICAO(dest)} WX</div>
             <div id="wx-${toICAO(dest)}-inline" class="wx-body-sm"><div class="wx-spin-sm"></div></div>
-            <div class="brief-lbl" style="margin-top:8px">Arr Gate</div>
-            <input id="c-arr" class="input" type="text" style="height:36px;padding:6px 10px"
-              value="${_esc(crew.arr_gate||'')}" placeholder="A8"/>
+            <div style="display:flex;align-items:center;gap:6px;margin-top:8px;justify-content:flex-end">
+              <span id="c-arr-auto" style="font-size:11px;color:var(--green)"></span>
+              <input id="c-arr" class="input" type="text"
+                style="width:72px;height:32px;padding:4px 8px;text-align:center;font-weight:700"
+                value="${_esc(crew.arr_gate||'')}" placeholder="A8"/>
+              <span class="brief-lbl" style="margin:0">Gate</span>
+            </div>
           </div>
         </div>
         <!-- Water + Wx Note + Copy -->
