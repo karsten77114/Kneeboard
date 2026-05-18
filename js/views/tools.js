@@ -631,10 +631,7 @@ function _calcDutyTime(panel, cfg, accMode = 'before', timeMode = 'utc') {
   // DHD End Time (Rest Start) — compute duration from FDP End to DHD End
   let dhdMin = 0;
   if (hasDhd && endMin != null) {
-    const dhdEndMin = toMin(
-      panel.querySelector('#dt-dhd-date')?.value,
-      panel.querySelector('#dt-dhd-time')?.value
-    );
+    const dhdEndMin = parseDT('dt-dhd-date', 'dt-dhd-time');
     if (dhdEndMin != null && dhdEndMin > endMin) dhdMin = dhdEndMin - endMin;
   }
 
