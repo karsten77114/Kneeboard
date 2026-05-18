@@ -18,6 +18,7 @@ let activeTabId    = 'home';
 let activeView     = null;
 let _clockTimer    = null;
 let _sbSearching   = false;
+let _sbDate        = todayStr();
 const mainEl       = document.getElementById('main');
 const topbarEl     = document.getElementById('topbar');
 const searchbarEl  = document.getElementById('searchbar');
@@ -156,8 +157,10 @@ function _switchTab(id) {
 function _renderSearchBar() {
   const f = store.flight;
 
+  const prevFlight = searchbarEl.querySelector('#sb-flt-input')?.value || '';
+
   if (f) {
-    // Flight loaded — show compact info + change button
+    // Flight loaded — show compact info + change form
     searchbarEl.innerHTML = `
       <div class="sb-flight-info">
         <span class="sb-flt">${f.flightNumber || ''}</span>
@@ -167,16 +170,23 @@ function _renderSearchBar() {
       </div>
       <div class="sb-search-form" style="flex:0 0 auto">
         <input class="sb-input" id="sb-flt-input" placeholder="換班號" maxlength="4"
-               style="width:90px;font-size:13px">
+               style="width:80px;font-size:13px">
+        <button class="sb-nav-btn" id="sb-prev">◄</button>
+        <input type="date" id="sb-date-input" class="sb-date-input"
+               value="${_sbDate.replace(/(\d{4})(\d{2})(\d{2})/, '$1-$2-$3')}">
+        <button class="sb-nav-btn" id="sb-next">►</button>
         <button class="btn btn-ghost btn-sm" id="sb-btn"
                 style="height:30px;padding:0 10px;font-size:12px;white-space:nowrap">查詢</button>
       </div>`;
   } else {
-    // No flight — show prominent search
+    // No flight — show prominent search with date picker
     searchbarEl.innerHTML = `
       <div class="sb-search-form">
-        <span class="sb-hint">班號</span>
         <input class="sb-input" id="sb-flt-input" placeholder="800" maxlength="4">
+        <button class="sb-nav-btn" id="sb-prev">◄</button>
+        <input type="date" id="sb-date-input" class="sb-date-input"
+               value="${_sbDate.replace(/(\d{4})(\d{2})(\d{2})/, '$1-$2-$3')}">
+        <button class="sb-nav-btn" id="sb-next">►</button>
         <button class="btn btn-primary btn-sm" id="sb-btn"
                 style="height:30px;padding:0 14px;font-size:13px;font-weight:700;white-space:nowrap">
           ${_sbSearching ? '查詢中…' : '查詢'}
@@ -185,15 +195,36 @@ function _renderSearchBar() {
       </div>`;
   }
 
-  const input = searchbarEl.querySelector('#sb-flt-input');
-  const btn   = searchbarEl.querySelector('#sb-btn');
+  const input     = searchbarEl.querySelector('#sb-flt-input');
+  const btn       = searchbarEl.querySelector('#sb-btn');
+  const dateInput = searchbarEl.querySelector('#sb-date-input');
+  const prevBtn   = searchbarEl.querySelector('#sb-prev');
+  const nextBtn   = searchbarEl.querySelector('#sb-next');
 
-  // Restore last flight number
+  // Restore flight number (prefer what user was typing, then saved last)
   const last = storage.getLastSearch();
-  if (input && last.flight && !f) input.value = last.flight;
+  if (input) input.value = prevFlight || (!f && last.flight ? last.flight : '');
 
   btn?.addEventListener('click', _doSbSearch);
   input?.addEventListener('keydown', e => { if (e.key === 'Enter') _doSbSearch(); });
+
+  dateInput?.addEventListener('change', () => {
+    _sbDate = dateInput.value.replace(/-/g, '');
+  });
+
+  prevBtn?.addEventListener('click', () => {
+    const d = new Date(_sbDate.slice(0,4) + '-' + _sbDate.slice(4,6) + '-' + _sbDate.slice(6,8));
+    d.setDate(d.getDate() - 1);
+    _sbDate = d.toISOString().slice(0,10).replace(/-/g,'');
+    _renderSearchBar();
+  });
+
+  nextBtn?.addEventListener('click', () => {
+    const d = new Date(_sbDate.slice(0,4) + '-' + _sbDate.slice(4,6) + '-' + _sbDate.slice(6,8));
+    d.setDate(d.getDate() + 1);
+    _sbDate = d.toISOString().slice(0,10).replace(/-/g,'');
+    _renderSearchBar();
+  });
 }
 
 async function _doSbSearch() {
@@ -202,7 +233,7 @@ async function _doSbSearch() {
   const flight = (input?.value || '').trim().replace(/^JX/i, '');
   if (!flight) { showToast('請輸入班號'); input?.focus(); return; }
 
-  const date = todayStr();
+  const date = _sbDate;
   _sbSearching = true;
   _renderSearchBar();
 

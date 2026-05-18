@@ -120,6 +120,21 @@
 .sb-hint {
   font-size: 11px; color: var(--text3); white-space: nowrap; flex-shrink: 0;
 }
+.sb-nav-btn {
+  height: 30px; padding: 0 8px;
+  background: rgba(0,0,0,.3); border: 1px solid rgba(196,154,60,.2);
+  border-radius: 6px; color: var(--text2); font-size: 12px;
+  cursor: pointer; flex-shrink: 0; line-height: 1;
+}
+.sb-nav-btn:active { opacity: .6; }
+.sb-date-input {
+  height: 30px; padding: 0 6px;
+  font-size: 12px; font-family: 'JetBrains Mono','SF Mono',monospace;
+  background: rgba(0,0,0,.35); border: 1px solid rgba(196,154,60,.25);
+  border-radius: 6px; color: var(--text); outline: none;
+  flex-shrink: 1; min-width: 0; width: 130px;
+  color-scheme: dark;
+}
 
 /* ── Main content ─────────────────────────────────────────────── */
 #main {
