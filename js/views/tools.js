@@ -6,11 +6,10 @@ const TOOL_LIST = [
   { id: 'overtime', label: '💰 Overtime',     done: true },
   { id: 'hf',       label: '📻 Pacific HF',  done: true },
   { id: 'fpl',      label: '📡 FPL Decoder', done: true },
-  { id: 'calc',     label: '🔢 計算工具',     done: true },
   { id: 'links',    label: '🔗 外部連結',     done: true },
 ];
 
-let activeTool = 'calc';
+let activeTool = 'fdp';
 
 export function mount(container) {
   _render(container);
@@ -49,7 +48,6 @@ function _renderTool(panel) {
     case 'overtime': _renderOtWip(inner);    break;
     case 'hf':       _renderHF(inner);       break;
     case 'fpl':      _renderFpl(inner);      break;
-    case 'calc':     _renderCalc(inner);     break;
     case 'links':    _renderLinks(inner);    break;
   }
 }
@@ -950,139 +948,6 @@ function _renderHF(panel) {
     </div>`;
 }
 
-// ── Calc Tools ────────────────────────────────────────────────────
-
-function _renderCalc(panel) {
-  panel.innerHTML = `
-    <h3 style="font-size:16px;font-weight:800;margin-bottom:14px">🔢 計算工具</h3>
-
-    <!-- Fuel Converter -->
-    <div class="card" style="margin-bottom:12px">
-      <div class="card-title">燃油換算 Fuel Conversion</div>
-      <div style="display:flex;flex-direction:column;gap:10px">
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
-          <div>
-            <label class="form-label">數值</label>
-            <input class="input" id="fuel-val" type="number" placeholder="例：10000" style="width:100%;height:40px">
-          </div>
-          <div>
-            <label class="form-label">單位</label>
-            <select class="input" id="fuel-unit" style="width:100%;height:40px">
-              <option value="kg">kg</option>
-              <option value="lbs">lbs</option>
-              <option value="L">Liters (A321)</option>
-            </select>
-          </div>
-        </div>
-        <button class="btn btn-primary" id="btn-fuel-conv" style="width:100%">換算</button>
-        <div id="fuel-result"></div>
-      </div>
-    </div>
-
-    <!-- Unit Converter -->
-    <div class="card" style="margin-bottom:12px">
-      <div class="card-title">單位換算 Unit Conversion</div>
-      <div style="display:flex;flex-direction:column;gap:14px">
-        ${_unitRow('壓力 Pressure', 'press', 'hPa', 'inHg', 1013.25, 29.92)}
-        ${_unitRow('溫度 Temperature', 'temp', '°C', '°F', 15, 59)}
-      </div>
-    </div>
-
-    <!-- Crosswind -->
-    <div class="card">
-      <div class="card-title">橫風分量 Crosswind Component</div>
-      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:10px">
-        <div>
-          <label class="form-label">Wind Dir</label>
-          <input class="input" id="xw-dir" type="number" placeholder="270" style="width:100%;height:40px">
-        </div>
-        <div>
-          <label class="form-label">Wind Spd (kt)</label>
-          <input class="input" id="xw-spd" type="number" placeholder="15" style="width:100%;height:40px">
-        </div>
-        <div>
-          <label class="form-label">RWY Hdg</label>
-          <input class="input" id="xw-rwy" type="number" placeholder="05" style="width:100%;height:40px">
-        </div>
-      </div>
-      <button class="btn btn-primary" id="btn-xw" style="width:100%">計算</button>
-      <div id="xw-result" style="margin-top:10px"></div>
-    </div>`;
-
-  _bindCalc(panel);
-}
-
-function _unitRow(title, prefix, unitA, unitB, defA, defB) {
-  return `<div>
-    <div style="font-size:12px;color:var(--text2);margin-bottom:8px;font-weight:600">${title}</div>
-    <div style="display:grid;grid-template-columns:1fr auto 1fr;gap:8px;align-items:center">
-      <div style="display:flex;align-items:center;gap:6px">
-        <input class="input" id="${prefix}-a" type="number" value="${defA}" style="flex:1;height:40px;min-width:0">
-        <span style="color:var(--text3);font-size:12px;white-space:nowrap">${unitA}</span>
-      </div>
-      <span style="color:var(--text3);font-size:16px;padding:0 4px">↔</span>
-      <div style="display:flex;align-items:center;gap:6px">
-        <input class="input" id="${prefix}-b" type="number" value="${defB}" style="flex:1;height:40px;min-width:0">
-        <span style="color:var(--text3);font-size:12px;white-space:nowrap">${unitB}</span>
-      </div>
-    </div>
-  </div>`;
-}
-
-function _bindCalc(panel) {
-  panel.querySelector('#btn-fuel-conv').onclick = () => {
-    const val  = parseFloat(panel.querySelector('#fuel-val').value);
-    const unit = panel.querySelector('#fuel-unit').value;
-    const res  = panel.querySelector('#fuel-result');
-    if (!val) { res.innerHTML = ''; return; }
-    let rows = [];
-    if (unit === 'kg')  rows = [`${(val*2.20462).toFixed(0)} lbs`, `${(val/0.8).toFixed(0)} L (A321, density 0.800)`];
-    if (unit === 'lbs') rows = [`${(val/2.20462).toFixed(0)} kg`,  `${(val/2.20462/0.8).toFixed(0)} L`];
-    if (unit === 'L')   rows = [`${(val*0.8).toFixed(0)} kg`,      `${(val*0.8*2.20462).toFixed(0)} lbs`];
-    res.innerHTML = rows.map(r => `<div style="font-size:15px;font-weight:700;color:var(--accent)">${r}</div>`).join('');
-  };
-
-  ['press-a','press-b'].forEach(id => {
-    panel.querySelector(`#${id}`)?.addEventListener('input', () => {
-      const v = parseFloat(panel.querySelector(`#${id}`).value);
-      if (!v) return;
-      if (id === 'press-a') panel.querySelector('#press-b').value = (v/33.8639).toFixed(2);
-      else                  panel.querySelector('#press-a').value = (v*33.8639).toFixed(1);
-    });
-  });
-
-  ['temp-a','temp-b'].forEach(id => {
-    panel.querySelector(`#${id}`)?.addEventListener('input', () => {
-      const v = parseFloat(panel.querySelector(`#${id}`).value);
-      if (isNaN(v)) return;
-      if (id === 'temp-a') panel.querySelector('#temp-b').value = (v*9/5+32).toFixed(1);
-      else                 panel.querySelector('#temp-a').value = ((v-32)*5/9).toFixed(1);
-    });
-  });
-
-  panel.querySelector('#btn-xw').onclick = () => {
-    const dir = parseFloat(panel.querySelector('#xw-dir').value);
-    const spd = parseFloat(panel.querySelector('#xw-spd').value);
-    const rwyHdg = parseFloat(panel.querySelector('#xw-rwy').value) * 10;
-    const res = panel.querySelector('#xw-result');
-    if (isNaN(dir) || isNaN(spd) || isNaN(rwyHdg)) { res.innerHTML = ''; return; }
-    const angle = Math.abs(dir - rwyHdg) % 360;
-    const eff   = angle > 180 ? 360 - angle : angle;
-    const xw    = Math.abs(Math.sin(eff * Math.PI/180) * spd).toFixed(1);
-    const hw    = (Math.cos(eff * Math.PI/180) * spd).toFixed(1);
-    res.innerHTML = `
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:4px">
-        <div style="background:var(--surface);border-radius:8px;padding:10px 12px">
-          <div style="font-size:11px;color:var(--text3);margin-bottom:4px">橫風 Crosswind</div>
-          <div style="font-size:22px;font-weight:800;color:var(--accent)">${xw} kt</div>
-        </div>
-        <div style="background:var(--surface);border-radius:8px;padding:10px 12px">
-          <div style="font-size:11px;color:var(--text3);margin-bottom:4px">順/逆風 Head/Tail</div>
-          <div style="font-size:22px;font-weight:800;color:${Number(hw)>=0?'var(--green)':'var(--red)'}">${hw} kt</div>
-        </div>
-      </div>`;
-  };
-}
 
 // ── FPL Decoder ───────────────────────────────────────────────────
 

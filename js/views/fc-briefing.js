@@ -506,14 +506,19 @@ function _renderMEL() {
   }
 
   const logs = elb.mel || [];
+
+  // Separate true MEL/CDL items from OTH (MP tasks / inspections / no MEL ref)
+  const melItems = logs.filter(m => m._refType !== 'OTH');
+  const othItems = logs.filter(m => m._refType === 'OTH');
+
   if (badge) {
     badge.style.display = 'inline-block';
-    if (!logs.length) {
+    if (!melItems.length) {
       badge.style.cssText = 'display:inline-block;font-size:12px;font-weight:700;padding:2px 10px;border-radius:12px;background:rgba(34,197,94,.2);color:var(--green)';
-      badge.textContent = '0 MEL';
+      badge.textContent = othItems.length ? `0 MEL · ${othItems.length} OTH` : '0 MEL';
     } else {
       badge.style.cssText = 'display:inline-block;font-size:12px;font-weight:700;padding:2px 10px;border-radius:12px;background:rgba(245,158,11,.2);color:var(--gold)';
-      badge.textContent = `${logs.length} MEL`;
+      badge.textContent = othItems.length ? `${melItems.length} MEL · ${othItems.length} OTH` : `${melItems.length} MEL`;
     }
   }
 
@@ -522,32 +527,52 @@ function _renderMEL() {
     return;
   }
 
-  const sorted = [...logs].sort((a,b) => (a._expireDays ?? Infinity) - (b._expireDays ?? Infinity));
-  body.innerHTML = sorted.map(m => {
-    const desc = m.faultDescription || m.defectDescription || '（無描述）';
-    const cat  = m._category || '';
-    const days = m._expireDays;
+  const catMap = {
+    A:   'rgba(239,68,68,.3);color:var(--red)',
+    B:   'rgba(245,158,11,.3);color:var(--gold)',
+    C:   'rgba(250,204,21,.3);color:#fbbf24',
+    D:   'rgba(148,163,184,.2);color:var(--text2)',
+  };
+
+  function _melRow(m, prefix) {
+    const desc    = m.faultDescription || m.defectDescription || '（無描述）';
+    const cat     = m._category || '';
+    const days    = m._expireDays;
+    const limit   = m._expireLimit;
     const expCls  = days != null ? (days <= 7 ? 'urgent' : days <= 30 ? 'warn' : 'ok') : '';
     const expHtml = days != null
-      ? `<span style="font-size:11px;padding:1px 7px;border-radius:10px;${_expStyle(expCls)}">到期 ${days} 天</span>` : '';
-    const catMap = {
-      A:   'rgba(239,68,68,.3);color:var(--red)',
-      B:   'rgba(245,158,11,.3);color:var(--gold)',
-      C:   'rgba(250,204,21,.3);color:#fbbf24',
-      D:   'rgba(148,163,184,.2);color:var(--text2)',
-      OTH: 'rgba(148,163,184,.15);color:var(--text3)',
-    };
+      ? `<span style="font-size:11px;padding:1px 7px;border-radius:10px;${_expStyle(expCls)}">到期 ${days} 天</span>`
+      : limit
+        ? `<span style="font-size:11px;padding:1px 7px;border-radius:10px;background:rgba(148,163,184,.15);color:var(--text3)">到期 ${limit}</span>`
+        : '';
     const catHtml = cat
-      ? `<span style="font-size:11px;font-weight:700;padding:1px 7px;border-radius:10px;background:${catMap[cat]||catMap.D}">Cat ${cat}</span>` : '';
+      ? `<span style="font-size:11px;font-weight:700;padding:1px 7px;border-radius:10px;background:${catMap[cat]||'rgba(148,163,184,.2);color:var(--text2)'}">Cat ${cat}</span>` : '';
+    const headerHtml = m._melCode
+      ? `<div style="font-size:12px;font-weight:700;color:var(--gold);margin-bottom:3px">${prefix} ${m._melCode}</div>`
+      : '';
     return `<div style="padding:10px 0;border-bottom:1px solid var(--border)">
-      ${m._melCode ? `<div style="font-size:12px;font-weight:700;color:var(--gold);margin-bottom:3px">MEL ${m._melCode}</div>` : ''}
-      <div style="font-size:13px;color:var(--text)">${desc}</div>
+      ${headerHtml}
+      <div style="font-size:13px;color:var(--text)">${_esc(desc)}</div>
       <div style="display:flex;align-items:center;flex-wrap:wrap;gap:4px;margin-top:4px">
         ${m.deferralRefNum ? `<span style="font-size:11px;color:var(--text3)">REF ${m.deferralRefNum}</span>` : ''}
         ${catHtml}${expHtml}
       </div>
     </div>`;
-  }).join('');
+  }
+
+  const sortedMel = [...melItems].sort((a,b) => (a._expireDays ?? Infinity) - (b._expireDays ?? Infinity));
+  const sortedOth = [...othItems].sort((a,b) => (a._expireDays ?? Infinity) - (b._expireDays ?? Infinity));
+
+  let html = sortedMel.map(m => _melRow(m, 'MEL')).join('');
+
+  if (sortedOth.length) {
+    html += `<div style="font-size:11px;font-weight:700;color:var(--text3);letter-spacing:0.6px;
+      text-transform:uppercase;margin-top:14px;margin-bottom:4px;padding-top:10px;
+      border-top:1px solid var(--border)">OTH — Non-MEL Deferred Tasks</div>`;
+    html += sortedOth.map(m => _melRow(m, 'OTH')).join('');
+  }
+
+  body.innerHTML = html;
 }
 
 // ── ATC route ────────────────────────────────────────────────────
