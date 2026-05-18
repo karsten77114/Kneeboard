@@ -304,9 +304,7 @@ function _wxInlineHtml(c) {
   if (!items.length) return `<div style="color:var(--text3);font-size:10px">—</div>`;
 
   const mono = "font-family:'JetBrains Mono','SF Mono',monospace";
-  return items.map(item =>
-    `<div style="${mono};font-size:11px;color:var(--text);line-height:1.6">${_esc(item)}</div>`
-  ).join('');
+  return `<div style="${mono};font-size:11px;color:var(--text);line-height:1.6;white-space:nowrap">${items.map(_esc).join(' ')}</div>`;
 }
 
 // ── Fuel ─────────────────────────────────────────────────────────
