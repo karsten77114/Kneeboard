@@ -100,6 +100,7 @@ function _render(container) {
   _applyStyles();
   _renderMEL();
   _loadWeather(dep, dest);
+  _bindFuel(o);
   setTimeout(() => _bindCrew(crewKey, fltNo, dep, dest, t, cruiseFL, block), 0);
 }
 
@@ -315,22 +316,62 @@ function _fuelRows(o) {
     { label: 'Crit Fuel',     val: o.critFuel },
     { label: 'Extra',         val: o.extraFuel },
     { label: 'Tankering',     val: o.tankerFuel },
-    { label: 'Taxi',          val: o.taxiFuel },
   ].filter(x => has(x.val));
 
-  if (!items.length) return '<div style="color:var(--text3);font-size:13px">暫無燃油資料</div>';
+  if (!items.length && !has(o.toFuel)) return '<div style="color:var(--text3);font-size:13px">暫無燃油資料</div>';
 
-  return items.map(f => {
+  const toFuel  = o.toFuel  ?? 0;
+  const taxiFuel = o.taxiFuel ?? 0;
+  const blockFuel = toFuel + taxiFuel;
+
+  const rowHtml = items.map(f => {
     const dim = f.val === 0 ? 'opacity:.35;' : '';
     return `<div class="data-row" style="${dim}">
       <span class="data-label">${f.label}</span>
       <span class="data-val">${fuelStr(f.val)}</span>
     </div>`;
-  }).join('') + (has(o.toFuel) ? `
+  }).join('');
+
+  const toFuelHtml = has(o.toFuel) ? `
     <div style="background:var(--surface);border-radius:8px;padding:8px 12px;margin-top:10px;display:flex;justify-content:space-between;align-items:center">
       <span style="font-weight:700">Takeoff Fuel</span>
-      <span style="color:var(--gold);font-size:17px;font-weight:800;font-family:'JetBrains Mono','SF Mono',monospace">${fuelStr(o.toFuel)}</span>
-    </div>` : '');
+      <span style="color:var(--gold);font-size:17px;font-weight:800;font-family:'JetBrains Mono','SF Mono',monospace">${fuelStr(toFuel)}</span>
+    </div>` : '';
+
+  const taxiHtml = has(o.taxiFuel) ? `
+    <div class="data-row">
+      <span class="data-label">Taxi</span>
+      <span class="data-val">${fuelStr(taxiFuel)}</span>
+    </div>` : '';
+
+  const captainHtml = `
+    <div class="data-row" style="margin-top:4px">
+      <span class="data-label" style="color:var(--text2)">+ 機長追加油量</span>
+      <div style="display:flex;align-items:center;gap:6px">
+        <input id="fuel-captain-extra" type="number" min="0" step="100" value="0"
+          class="input" style="width:90px;height:32px;text-align:right;padding:4px 8px;font-size:13px">
+        <span style="color:var(--text3);font-size:13px">kg</span>
+      </div>
+    </div>`;
+
+  const blockFuelHtml = `
+    <div id="fuel-block-row" style="background:var(--surface);border-radius:8px;padding:8px 12px;margin-top:10px;display:flex;justify-content:space-between;align-items:center">
+      <span style="font-weight:700">Block Fuel</span>
+      <span id="fuel-block-val" style="color:var(--gold);font-size:17px;font-weight:800;font-family:'JetBrains Mono','SF Mono',monospace">${fuelStr(blockFuel)}</span>
+    </div>`;
+
+  return rowHtml + toFuelHtml + taxiHtml + captainHtml + blockFuelHtml;
+}
+
+function _bindFuel(o) {
+  const input = document.getElementById('fuel-captain-extra');
+  const display = document.getElementById('fuel-block-val');
+  if (!input || !display) return;
+  const base = (o.toFuel ?? 0) + (o.taxiFuel ?? 0);
+  input.addEventListener('input', () => {
+    const extra = parseInt(input.value) || 0;
+    display.textContent = fuelStr(base + extra);
+  });
 }
 
 // ── Weight ───────────────────────────────────────────────────────
@@ -482,10 +523,11 @@ function _renderMEL() {
     const expHtml = days != null
       ? `<span style="font-size:11px;padding:1px 7px;border-radius:10px;${_expStyle(expCls)}">到期 ${days} 天</span>` : '';
     const catMap = {
-      A: 'rgba(239,68,68,.3);color:var(--red)',
-      B: 'rgba(245,158,11,.3);color:var(--gold)',
-      C: 'rgba(250,204,21,.3);color:#fbbf24',
-      D: 'rgba(148,163,184,.2);color:var(--text2)',
+      A:   'rgba(239,68,68,.3);color:var(--red)',
+      B:   'rgba(245,158,11,.3);color:var(--gold)',
+      C:   'rgba(250,204,21,.3);color:#fbbf24',
+      D:   'rgba(148,163,184,.2);color:var(--text2)',
+      OTH: 'rgba(148,163,184,.15);color:var(--text3)',
     };
     const catHtml = cat
       ? `<span style="font-size:11px;font-weight:700;padding:1px 7px;border-radius:10px;background:${catMap[cat]||catMap.D}">Cat ${cat}</span>` : '';
