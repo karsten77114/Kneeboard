@@ -1250,27 +1250,27 @@ function _renderFpl(panel) {
 function _renderLinks(panel) {
   const LINKS = [
     { group: '公司系統', items: [
-      { label: 'SJX Pilot Space',        url: 'https://pilot.starlux-airlines.com' },
-      { label: 'LIDO Flight',            url: 'https://sjx.lido.aero' },
-      { label: 'SJX ELB Fleet',          url: 'https://sjx.elb.aero' },
-      { label: 'WNI Flight Plan Editor', url: 'https://fpleditor.wni.com' },
+      { label: 'SJX Pilot Space',        url: 'https://pilotstarspace.starlux-airlines.com/#/login' },
+      { label: 'LIDO Flight',            url: 'https://sjx.lido.aero/lido/las/login.jsp' },
+      { label: 'SJX ELB Fleet',          url: 'https://elb.starlux-airlines.com/elb/' },
+      { label: 'WNI Flight Plan Editor', url: 'https://flight-plan-editor.weathernews.com/flight_plan_editor/#login' },
+      { label: 'iQSMS',                  url: 'https://starluxairlines.asqs.net' },
     ]},
     { group: '天氣', items: [
-      { label: 'Tono2 日本航空天氣',    url: 'https://tono2.com' },
+      { label: 'Tono2 日本航空天氣',    url: 'https://www.tono2.net' },
       { label: 'Windy',                  url: 'https://www.windy.com' },
       { label: 'Turbli 亂流查詢',        url: 'https://turbli.com' },
       { label: '中央氣象署颱風',         url: 'https://www.cwa.gov.tw' },
     ]},
     { group: 'NOTAM & Routing', items: [
-      { label: 'Skyinfo NOTAM 地圖',     url: 'https://www.skyinfo.jp/notam/' },
-      { label: 'GPS 干擾查詢',           url: 'https://pilotweb.nas.faa.gov/PilotWeb/notamRetrievalByICAOAction.do?method=displayByICAO' },
+      { label: 'Skyinfo NOTAM',          url: 'https://www.skyinfo.jp' },
     ]},
     { group: '即時航班', items: [
-      { label: 'FlightRadar24',          url: 'https://www.flightradar24.com' },
+      { label: 'FlightRadar24',          url: 'https://www.flightradar24.com/' },
       { label: '桃機航班查詢',           url: 'https://www.taoyuan-airport.com' },
     ]},
     { group: '行政', items: [
-      { label: '換班單',                  url: 'https://pilot.starlux-airlines.com' },
+      { label: '換班單',                  url: 'https://zihchi.github.io/briefing-package/swap' },
     ]},
   ];
 
