@@ -119,7 +119,7 @@ async function _search(container) {
     const data = await fetchGate(fno, dateStr);
     result.innerHTML = _renderCard(data);
     // Async ADS-B lookup — don't await, fills in after render
-    if (data.aircraftHex || data.aircraft) _fetchAircraftLive(data);
+    if (data.aircraftHex || data.aircraft || data.acType) _fetchAircraftLive(data, fno);
   } catch (e) {
     result.innerHTML = `
       <div style="padding:14px;background:var(--surface);border:1px solid var(--red)33;
@@ -169,7 +169,7 @@ function _renderCard(data) {
       </div>` : ''}
 
       <!-- Aircraft live status (filled async by _fetchAircraftLive) -->
-      ${(data.aircraft || data.aircraftHex) ? `
+      ${(data.aircraft || data.aircraftHex || data.acType) ? `
       <div id="gate-ac-status" style="margin-bottom:10px">
         <div class="card" style="padding:10px 14px;display:flex;align-items:center;gap:8px">
           <span style="font-family:var(--font-mono);font-size:13px;font-weight:700;color:var(--text2)">${data.aircraft || '—'}</span>
@@ -280,30 +280,38 @@ function _fmtTime(iso) {
 
 // ── Aircraft Live Status (OpenSky ADS-B) ────────────────────────────
 
-async function _fetchAircraftLive(data) {
+async function _fetchAircraftLive(data, fno) {
   const el = document.getElementById('gate-ac-status');
   if (!el) return;
 
-  const hex = data.aircraftHex?.toLowerCase();
-  const reg = data.aircraft || '—';
-  const acType = data.acType || '';
+  const hex    = data.aircraftHex?.toLowerCase();
+  const reg    = data.aircraft || '—';
+  const acType = data.acType   || '';
 
-  if (!hex) {
-    // No hex — just show registration without live data
+  // Build OpenSky query: prefer hex, fallback to STARLUX AXB callsign
+  let osUrl = null;
+  if (hex) {
+    osUrl = `https://opensky-network.org/api/states/all?icao24=${hex}`;
+  } else if (fno) {
+    // STARLUX ICAO callsign = AXB + numeric part, padded to 8 chars
+    const numPart = fno.replace(/^[A-Z]+/, '');
+    const callsign = `AXB${numPart}`.padEnd(8, ' ');
+    osUrl = `https://opensky-network.org/api/states/all?callsign=${encodeURIComponent(callsign)}`;
+  }
+
+  if (!osUrl) {
     el.innerHTML = _acStatusCard(reg, acType, null);
     return;
   }
 
   try {
-    const resp = await fetch(`https://opensky-network.org/api/states/all?icao24=${hex}`, {
-      signal: AbortSignal.timeout(8000),
-    });
+    const resp = await fetch(osUrl, { signal: AbortSignal.timeout(8000) });
     if (!resp.ok) throw new Error('OpenSky error');
     const json = await resp.json();
     const s = json.states?.[0];
 
     if (!s) {
-      // Aircraft not tracked — probably on ground, signal lost
+      // Not found in ADS-B — aircraft likely on ground / signal lost
       el.innerHTML = _acStatusCard(reg, acType, { onGround: true, noSignal: true });
       return;
     }
@@ -317,7 +325,7 @@ async function _fetchAircraftLive(data) {
 
     const fl  = (!onGround && altM != null) ? Math.round(altM / 30.48) : null;
     const kt  = (!onGround && velMs != null) ? Math.round(velMs * 1.944) : null;
-    const age = lastContact ? Math.round((Date.now() / 1000 - lastContact) / 60) : null; // minutes ago
+    const age = lastContact ? Math.round((Date.now() / 1000 - lastContact) / 60) : null;
 
     el.innerHTML = _acStatusCard(reg, acType, { callsign, onGround, fl, kt, heading, age });
   } catch {
