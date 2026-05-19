@@ -1313,7 +1313,7 @@ async function handleRequest(request, env) {
           lastUpdated: adbx.lastUpdated,
           fetchedAt:   new Date().toISOString(),
         }), {
-          headers: { ...headers, 'Content-Type': 'application/json', 'Cache-Control': 'public, max-age=90' },
+          headers: { ...headers, 'Content-Type': 'application/json', 'Cache-Control': 'no-store' },
         });
       } catch (e) {
         return new Response(JSON.stringify({ error: e.message, fno }), {
