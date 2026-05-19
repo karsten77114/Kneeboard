@@ -1264,6 +1264,7 @@ function _renderLinks(panel) {
     ]},
     { group: 'NOTAM & Routing', items: [
       { label: 'Skyinfo NOTAM',          url: 'https://www.skyinfo.jp' },
+      { label: 'GPS Interference',       url: 'https://gpsjam.org/' },
     ]},
     { group: '即時航班', items: [
       { label: 'FlightRadar24',          url: 'https://www.flightradar24.com/' },
