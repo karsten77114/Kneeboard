@@ -616,13 +616,6 @@ function parseATSRoute(txt) {
   return lines.join(' ');
 }
 
-// 提取完整 ICAO FPL 區塊（含括號），供 WNI 等工具使用
-function extractIcaoFpl(txt) {
-  if (!txt) return null;
-  const m = txt.match(/\(FPL[\s\S]+?\)/);
-  return m ? m[0].trim() : null;
-}
-
 // 主 Handler
 async function handleRequest(request, env) {
   const url = new URL(request.url);
@@ -812,7 +805,6 @@ async function handleRequest(request, env) {
         weight: parsed.weight,
         flightRoute: parsed.flightRoute,
         atsRoute: atsText ? parseATSRoute(atsText) : parsed.flightRoute,
-        icaoFpl: atsText ? extractIcaoFpl(atsText) : null,
         availableDocs: Object.keys(parsed.fileIds),
         // OFP 文字解析補充
         ofp: { ...ofpExtra, flight: flightNum, dep: parsed.dep, dest: parsed.dest },
@@ -1275,7 +1267,7 @@ async function handleRequest(request, env) {
           source:        'TDX',
         } : adbx.departure ? { ...adbx.departure, source: 'AeroDataBox' } : null;
 
-        const finalArr = tdxArrData ? {
+        let finalArr = tdxArrData ? {
           airport:       arrIata,
           terminal:      tdxArrData.Terminal     || null,
           gate:          tdxArrData.Gate         || null,
@@ -1286,6 +1278,31 @@ async function handleRequest(request, env) {
           status:        tdxArrData.ArrivalRemark        || null,
           source:        'TDX',
         } : adbx.arrival ? { ...adbx.arrival, source: 'AeroDataBox' } : null;
+
+        // ── 如果 ARR gate 是 null，自動查回程航班的出發 gate（停機位）──────
+        // 原理：JX870 → OKA (gate null) → 查 JX871 從 OKA 出發的 gate
+        if (finalArr && !finalArr.gate && arrIata && parsed) {
+          const fnoNum = parseInt(parsed.num, 10);
+          const candidates = fnoNum % 2 === 0 ? [fnoNum + 1, fnoNum - 1] : [fnoNum - 1, fnoNum + 1];
+          for (const delta of candidates) {
+            if (delta <= 0) continue;
+            const returnFno = `${parsed.airline}${delta}`;
+            try {
+              const returnRaw = await _adbxFlight(env.RAPIDAPI_KEY, returnFno, flightDate);
+              if (returnRaw?.departure?.airport?.iata === arrIata && returnRaw?.departure?.gate) {
+                finalArr = { ...finalArr, gate: returnRaw.departure.gate, gateVia: returnFno };
+                break;
+              }
+              // 若同日查不到，試隔天（回程可能隔天）
+              const nextDay = new Date(new Date(flightDate).getTime() + 86400000).toISOString().slice(0, 10);
+              const returnRaw2 = await _adbxFlight(env.RAPIDAPI_KEY, returnFno, nextDay);
+              if (returnRaw2?.departure?.airport?.iata === arrIata && returnRaw2?.departure?.gate) {
+                finalArr = { ...finalArr, gate: returnRaw2.departure.gate, gateVia: returnFno };
+                break;
+              }
+            } catch { /* 回程查詢失敗不影響主流程 */ }
+          }
+        }
 
         return new Response(JSON.stringify({
           fno, flightDate,

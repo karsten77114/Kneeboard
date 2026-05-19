@@ -195,6 +195,10 @@ function _depCard(dep) {
 
 function _arrCard(arr) {
   const srcColor = arr.source === 'TDX' ? 'var(--green)' : 'var(--blue)';
+  // gateVia: gate inferred from return flight (e.g. "JX871")
+  const gateLabel = arr.gate
+    ? (arr.gateVia ? `${arr.gate} <span style="font-size:10px;color:var(--text3);font-weight:400">↩ ${arr.gateVia}</span>` : arr.gate)
+    : null;
   return `
     <div class="card" style="border-left:3px solid var(--blue)">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
@@ -203,7 +207,7 @@ function _arrCard(arr) {
                      border:1px solid ${srcColor}33;border-radius:4px;padding:1px 5px">${arr.source}</span>
       </div>
       ${_opRow('Terminal', arr.terminal)}
-      ${_opRow('Gate',     arr.gate)}
+      ${gateLabel ? _opRowHtml('Gate', gateLabel) : ''}
       ${_opRow('Belt',     arr.belt)}
       ${_opRow('STA',      _fmtTime(arr.scheduledTime))}
       ${arr.actualTime    ? _opRow('ATA', _fmtTime(arr.actualTime))    : ''}
@@ -221,6 +225,16 @@ function _opRow(label, val) {
                 padding:5px 0;border-bottom:1px solid var(--border)">
       <span style="color:var(--text3);font-size:11px;font-weight:500">${label}</span>
       <span style="color:var(--text);font-family:var(--font-mono);font-size:15px;font-weight:700">${val}</span>
+    </div>`;
+}
+
+// _opRowHtml: same as _opRow but val is pre-built HTML (not escaped)
+function _opRowHtml(label, valHtml) {
+  return `
+    <div style="display:flex;justify-content:space-between;align-items:center;
+                padding:5px 0;border-bottom:1px solid var(--border)">
+      <span style="color:var(--text3);font-size:11px;font-weight:500">${label}</span>
+      <span style="color:var(--text);font-family:var(--font-mono);font-size:15px;font-weight:700">${valHtml}</span>
     </div>`;
 }
 
