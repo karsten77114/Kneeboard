@@ -36,6 +36,71 @@ function corsHeaders(origin) {
   };
 }
 
+// ── Notices helpers ───────────────────────────────────────────────
+
+function _buf2b64(buffer) {
+  let binary = '';
+  const bytes = new Uint8Array(buffer);
+  for (let i = 0; i < bytes.byteLength; i++) binary += String.fromCharCode(bytes[i]);
+  return btoa(binary);
+}
+
+async function _noticesGet(env) {
+  if (!env.NOTICES_KV) return [];
+  const raw = await env.NOTICES_KV.get('notices_list');
+  return raw ? JSON.parse(raw) : [];
+}
+
+async function _noticesSet(env, list) {
+  if (!env.NOTICES_KV) return;
+  await env.NOTICES_KV.put('notices_list', JSON.stringify(list));
+}
+
+const _NOTICE_PROMPT = `你是星宇航空(STARLUX Airlines)飛行員助理。請分析以下公告，以純 JSON 回應（不加任何 markdown 或說明文字）：
+{
+  "title": "一句話標題（30字內）",
+  "effective_date": "YYYY/MM/DD 或 null",
+  "source": "來源，如 FN-26-0053、Teams、Outlook、FCTM 修訂等",
+  "category": "fleet_notice 或 ops 或 safety 或 manual_update 或 admin 或 app_notice（分類規則：FN-XX-XXXX 編號的一般機隊公告 → fleet_notice；涉及手冊/程序修訂 → manual_update；安全警示 → safety；飛行計畫/地面作業/特定航班通告 → ops；人事/行政/薪資 → admin；App 版本 → app_notice）",
+  "aircraft": ["A321","A330","A350","all"] 中適用的機型陣列，全機隊填 ["all"],
+  "urgency": "urgent 或 important 或 normal",
+  "summary": ["重點1（50字內）","重點2","重點3"],
+  "action_required": "飛行員需執行的具體動作，若無填 null"
+}
+注意：
+- manual_update 類別：summary 需包含受影響的章節或程序名稱
+- app_notice 類別：說明是否可以升級及等待條件
+- safety 類別：urgency 必須是 urgent 或 important
+- 只輸出 JSON，不要任何其他文字`;
+
+async function _geminiAnalyze(apiKey, contentParts) {
+  if (!apiKey) throw new Error('GEMINI_API_KEY 尚未設定（wrangler secret put GEMINI_API_KEY）');
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=${apiKey}`;
+  const body = {
+    contents: [{ parts: [...contentParts, { text: _NOTICE_PROMPT }] }],
+    generationConfig: { temperature: 0.1, maxOutputTokens: 1024 },
+  };
+  const resp = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!resp.ok) {
+    const err = await resp.text().catch(() => '');
+    throw new Error(`Gemini ${resp.status}: ${err.substring(0, 200)}`);
+  }
+  const data = await resp.json();
+  const raw  = data.candidates?.[0]?.content?.parts?.[0]?.text || '{}';
+  const clean = raw.replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/```\s*$/,'').trim();
+  try {
+    return JSON.parse(clean);
+  } catch {
+    throw new Error(`Gemini 回傳非 JSON：${raw.substring(0, 100)}`);
+  }
+}
+
+// ── UUID ──────────────────────────────────────────────────────────
+
 function generateUUID() {
   let t, n;
   for (n = t = ''; t++ < 36; n += 51*t&52 ? (15^t ? 8^Math.random()*(20^t ? 16 : 4) : 4).toString(16) : '-');
@@ -1322,6 +1387,207 @@ async function handleRequest(request, env) {
           status: 502, headers: { ...headers, 'Content-Type': 'application/json' },
         });
       }
+    }
+
+    // ── Notices: GET /api/notices ─────────────────────────────────────
+    if (url.pathname === '/api/notices' && request.method === 'GET') {
+      const notices = await _noticesGet(env);
+      return new Response(JSON.stringify(notices), {
+        headers: { ...headers, 'Content-Type': 'application/json' },
+      });
+    }
+
+    // ── Notices: /api/notices/debug — 接力診斷端點 ─────────────────────
+    if (url.pathname === '/api/notices/debug') {
+      const authVal = (request.headers.get('Authorization') || '').replace(/^Bearer\s*/i, '').trim();
+      if (!env.UPLOAD_TOKEN || authVal !== env.UPLOAD_TOKEN) {
+        return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+          status: 401, headers: { ...headers, 'Content-Type': 'application/json' },
+        });
+      }
+      // GET：查詢最近一次 debug 紀錄（Mac 端輪詢用）
+      if (request.method === 'GET') {
+        const stored = env.NOTICES_KV ? await env.NOTICES_KV.get('debug_last') : null;
+        return new Response(stored || JSON.stringify({ error: 'no debug record yet' }), {
+          headers: { ...headers, 'Content-Type': 'application/json' },
+        });
+      }
+      // POST：收到 iOS 捷徑的請求，記錄並回傳
+      if (request.method === 'POST') {
+        const hdrs = {};
+        for (const [k, v] of request.headers.entries()) hdrs[k] = v;
+        let body = null;
+        try { body = await request.text(); } catch(e) { body = `[read error: ${e.message}]`; }
+        const tag = url.searchParams.get('tag') || 'unknown';
+        const queryParams = {};
+        for (const [k, v] of url.searchParams.entries()) queryParams[k] = v;
+        const record = {
+          tag,
+          ts: new Date().toISOString(),
+          contentType: request.headers.get('content-type'),
+          bodyLength: body ? body.length : 0,
+          bodyPreview: body ? body.substring(0, 800) : null,
+          queryParams,
+          headers: hdrs,
+        };
+        if (env.NOTICES_KV) await env.NOTICES_KV.put('debug_last', JSON.stringify(record));
+        return new Response(JSON.stringify(record, null, 2), {
+          headers: { ...headers, 'Content-Type': 'application/json' },
+        });
+      }
+    }
+
+    // ── Notices: POST /api/notices/upload ─────────────────────────────
+    if (url.pathname === '/api/notices/upload' && request.method === 'POST') {
+      // Token guard
+      const authVal = (request.headers.get('Authorization') || '').replace(/^Bearer\s*/i, '').trim();
+      if (!env.UPLOAD_TOKEN || authVal !== env.UPLOAD_TOKEN) {
+        return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+          status: 401, headers: { ...headers, 'Content-Type': 'application/json' },
+        });
+      }
+
+      const ct = request.headers.get('Content-Type') || '';
+      const parts = [];   // Gemini content parts
+      let   sourceHint = '';
+      let   dateOverride = null;  // 可選：覆蓋 Gemini 提取的 effective_date
+
+      // ── iOS Shortcuts 最可靠的傳送方式：X-Notice-Text header ──────────
+      // magic variable 在 iOS Shortcuts header 值裡可正確解析
+      // source / date 從 URL query params 取得
+      const noticeHeader = request.headers.get('x-notice-text');
+      if (noticeHeader && noticeHeader.trim()) {
+        sourceHint   = url.searchParams.get('source') || '分享';
+        dateOverride = url.searchParams.get('date')   || null;
+        parts.push({ text: `來源提示: ${sourceHint}\n\n公告內容:\n${noticeHeader}` });
+        // 有 header 就直接跳過 body 解析
+      } else if (ct.includes('multipart/form-data')) {
+        const fd   = await request.formData();
+        const file = fd.get('file');
+        const txt  = fd.get('text');
+        sourceHint  = fd.get('source') || '';
+        dateOverride = fd.get('date') || null;
+        if (file && file instanceof File) {
+          // text/plain → Gemini 用文字模式；其他（PDF/image）→ inline_data
+          if (file.type === 'text/plain' || file.type === '') {
+            const textContent = await file.text();
+            if (textContent.trim()) parts.push({ text: `來源提示: ${sourceHint}\n\n公告內容:\n${textContent}` });
+          } else {
+            const buf  = await file.arrayBuffer();
+            const b64  = _buf2b64(buf);
+            const mime = file.type || 'application/octet-stream';
+            parts.push({ inline_data: { mime_type: mime, data: b64 } });
+          }
+        } else if (file && typeof file === 'string' && file.trim()) {
+          // Shortcuts 傳文字時 file 欄位可能是純字串
+          parts.push({ text: `來源提示: ${sourceHint}\n\n公告內容:\n${file}` });
+        }
+        if (txt) parts.push({ text: `來源提示: ${sourceHint}\n\n公告內容:\n${txt}` });
+      } else if (ct.includes('application/json') || !ct) {
+        let body = {};
+        try {
+          const raw = await request.text();
+          if (raw && raw.trim()) body = JSON.parse(raw);
+        } catch (parseErr) {
+          return new Response(JSON.stringify({
+            error: 'JSON 解析失敗：Body 可能為空。\n請改用截圖或複製文字後以「上傳公告（剪貼簿）」捷徑上傳。'
+          }), { status: 400, headers: { ...headers, 'Content-Type': 'application/json' } });
+        }
+        sourceHint  = body.source || '';
+        dateOverride = body.date || null;
+        // 過濾靜態前綴後取得實際內容
+        const rawText = (body.text || '').replace(/^__KBUPLOAD__\n?/, '').trim();
+        if (rawText)           parts.push({ text: `來源提示: ${sourceHint}\n\n公告內容:\n${rawText}` });
+        if (body.image_base64) parts.push({ inline_data: { mime_type: body.mime_type || 'image/jpeg', data: body.image_base64 } });
+        if (body.pdf_base64)   parts.push({ inline_data: { mime_type: 'application/pdf', data: body.pdf_base64 } });
+      } else {
+        // iOS Shortcuts 'Form' body type 傳原始檔案時，Content-Type 為檔案本身的 MIME type
+        // 例如：application/pdf、image/jpeg、text/plain
+        // source / date 從 URL query params 取得
+        sourceHint  = url.searchParams.get('source') || '分享';
+        dateOverride = url.searchParams.get('date')  || null;
+
+        if (ct.startsWith('text/')) {
+          // 純文字 / HTML（剪貼簿文字、Teams 複製分享）
+          const text = await request.text();
+          if (text.trim()) parts.push({ text: `來源提示: ${sourceHint}\n\n公告內容:\n${text}` });
+        } else {
+          // 二進位：PDF、圖片、通用檔案
+          const buf  = await request.arrayBuffer();
+          if (buf.byteLength > 0) {
+            const b64  = _buf2b64(buf);
+            const mime = ct.split(';')[0].trim() || 'application/octet-stream';
+            parts.push({ inline_data: { mime_type: mime, data: b64 } });
+          }
+        }
+      }
+
+      if (!parts.length) {
+        return new Response(JSON.stringify({ error: 'No content provided' }), {
+          status: 400, headers: { ...headers, 'Content-Type': 'application/json' },
+        });
+      }
+
+      const analyzed = await _geminiAnalyze(env.GEMINI_API_KEY, parts);
+      const srcType  = parts.some(p => p.inline_data?.mime_type?.includes('pdf'))   ? 'pdf'
+                     : parts.some(p => p.inline_data?.mime_type?.includes('image')) ? 'image'
+                     : 'text';
+
+      const notice = {
+        id:          generateUUID(),
+        created_at:  new Date().toISOString(),
+        source_type: srcType,
+        ...analyzed,
+        ...(dateOverride ? { effective_date: dateOverride } : {}),
+      };
+
+      const list = await _noticesGet(env);
+      list.unshift(notice);
+      await _noticesSet(env, list.slice(0, 50));
+
+      return new Response(JSON.stringify({ ok: true, notice }), {
+        headers: { ...headers, 'Content-Type': 'application/json' },
+      });
+    }
+
+    // ── Notices: PATCH /api/notices/:id ──────────────────────────────
+    if (url.pathname.startsWith('/api/notices/') && request.method === 'PATCH') {
+      const authVal = (request.headers.get('Authorization') || '').replace(/^Bearer\s*/i, '').trim();
+      if (!env.UPLOAD_TOKEN || authVal !== env.UPLOAD_TOKEN) {
+        return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+          status: 401, headers: { ...headers, 'Content-Type': 'application/json' },
+        });
+      }
+      const targetId = url.pathname.split('/').pop();
+      const patch    = await request.json();
+      const list     = await _noticesGet(env);
+      const idx      = list.findIndex(n => n.id === targetId);
+      if (idx === -1) {
+        return new Response(JSON.stringify({ error: 'Not found' }), {
+          status: 404, headers: { ...headers, 'Content-Type': 'application/json' },
+        });
+      }
+      list[idx] = { ...list[idx], ...patch };
+      await _noticesSet(env, list);
+      return new Response(JSON.stringify({ ok: true, notice: list[idx] }), {
+        headers: { ...headers, 'Content-Type': 'application/json' },
+      });
+    }
+
+    // ── Notices: DELETE /api/notices/:id ──────────────────────────────
+    if (url.pathname.startsWith('/api/notices/') && request.method === 'DELETE') {
+      const authVal = (request.headers.get('Authorization') || '').replace(/^Bearer\s*/i, '').trim();
+      if (!env.UPLOAD_TOKEN || authVal !== env.UPLOAD_TOKEN) {
+        return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+          status: 401, headers: { ...headers, 'Content-Type': 'application/json' },
+        });
+      }
+      const targetId = url.pathname.split('/').pop();
+      const list     = await _noticesGet(env);
+      await _noticesSet(env, list.filter(n => n.id !== targetId));
+      return new Response(JSON.stringify({ ok: true }), {
+        headers: { ...headers, 'Content-Type': 'application/json' },
+      });
     }
 
     return new Response(JSON.stringify({ error: 'Not found', routes: ['/auth/login', '/api/briefing'] }), {
