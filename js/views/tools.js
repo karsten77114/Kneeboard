@@ -1275,15 +1275,14 @@ function _renderLinks(panel) {
   ];
 
   panel.innerHTML = `
-    <h3 style="font-size:16px;font-weight:800;margin-bottom:14px">🔗 外部連結入口</h3>
+    <h3 style="font-size:15px;font-weight:800;margin-bottom:12px">🔗 外部連結</h3>
     ${LINKS.map(g => `
-      <div class="section-title">${g.group}</div>
-      <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:16px">
+      <div class="section-title" style="margin-bottom:6px">${g.group}</div>
+      <div style="display:flex;flex-wrap:wrap;gap:7px;margin-bottom:14px">
         ${g.items.map(item => `
           <a href="${item.url}" target="_blank" rel="noopener"
-            style="display:flex;align-items:center;justify-content:space-between;padding:11px 14px;background:var(--card);border:1px solid var(--border);border-radius:10px;color:var(--text);text-decoration:none;font-size:14px;font-weight:600">
-            ${item.label}
-            <span style="color:var(--text3);font-size:12px">↗</span>
+            style="display:inline-flex;align-items:center;gap:5px;padding:7px 12px;background:var(--card);border:1px solid var(--border);border-radius:20px;color:var(--text);text-decoration:none;font-size:13px;font-weight:600;white-space:nowrap">
+            ${item.label}<span style="color:var(--text3);font-size:11px">↗</span>
           </a>`).join('')}
       </div>`).join('')}`;
 }
