@@ -140,6 +140,16 @@ export async function preloadMetarForFlight(airports) {
   }
 }
 
+// ── Gate Info (TDX) ──────────────────────────────────────────────
+
+export async function fetchGate(fno, date = '') {
+  let url = `${WORKER}/api/gate?fno=${encodeURIComponent(fno)}`;
+  if (date) url += `&date=${encodeURIComponent(date)}`;
+  const resp = await fetch(url);
+  if (!resp.ok) throw new Error(`Gate 查詢失敗 ${resp.status}`);
+  return resp.json();
+}
+
 // ── ELB ──────────────────────────────────────────────────────────
 
 export async function elbLogin(userId, password) {

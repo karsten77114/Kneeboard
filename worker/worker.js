@@ -42,6 +42,130 @@ function generateUUID() {
   return n;
 }
 
+// ── TDX Helpers ────────────────────────────────────────────────────
+// Token 在 Worker instance 內快取（同一 isolate 共用，跨 request 節省呼叫次數）
+let _tdxTokenCache = null;
+let _tdxTokenExp   = 0;
+
+async function _tdxGetToken(env) {
+  if (_tdxTokenCache && Date.now() < _tdxTokenExp) return _tdxTokenCache;
+  const resp = await fetch(
+    'https://tdx.transportdata.tw/auth/realms/TDXConnect/protocol/openid-connect/token',
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: `grant_type=client_credentials&client_id=${encodeURIComponent(env.TDX_CLIENT_ID)}&client_secret=${encodeURIComponent(env.TDX_CLIENT_SECRET)}`,
+    }
+  );
+  if (!resp.ok) throw new Error(`TDX token error ${resp.status}`);
+  const { access_token, expires_in } = await resp.json();
+  _tdxTokenCache = access_token;
+  _tdxTokenExp   = Date.now() + (expires_in - 60) * 1000; // 提前 60s 過期
+  return _tdxTokenCache;
+}
+
+// 拆解航班號：'JX786' → { airline: 'JX', num: '786' }
+function _parseFno(fno) {
+  const m = fno.match(/^([A-Z]{2,3})(\d{1,4})$/);
+  if (!m) return null;
+  return { airline: m[1], num: String(parseInt(m[2], 10)) }; // 去掉前導零
+}
+
+async function _tdxFIDS(token, airportIATA, direction, parsed, dateStr) {
+  // direction: 'Departure' | 'Arrival'
+  // parsed=null → 不加 filter，回傳全部（debug 用）
+  // dateStr: 'YYYY-MM-DD'，必填，防止抓到昨天的班次
+  let filterPart = '';
+  if (parsed && dateStr) {
+    // TDX FlightDate 是 Edm.Date 型別，OData 不加引號
+    filterPart = `$filter=AirlineID eq '${parsed.airline}' and FlightNumber eq '${parsed.num}' and FlightDate eq ${dateStr}&`;
+  } else if (dateStr) {
+    filterPart = `$filter=FlightDate eq ${dateStr}&`;
+  }
+  const qs  = `${filterPart}$format=JSON&$top=5`;
+  const url = `https://tdx.transportdata.tw/api/basic/v2/Air/FIDS/Airport/${direction}/${airportIATA}?${qs}`;
+  const resp = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+  if (!resp.ok) {
+    const errText = await resp.text().catch(() => '');
+    throw new Error(`TDX FIDS ${resp.status}: ${errText.substring(0, 100)}`);
+  }
+  const data = await resp.json();
+  // Trim 空白（TDX Gate 欄位有時有前置空格）
+  if (Array.isArray(data)) {
+    data.forEach(f => {
+      if (f.Gate)         f.Gate         = f.Gate.trim();
+      if (f.BaggageClaim) f.BaggageClaim = f.BaggageClaim.trim();
+      if (f.CheckCounter) f.CheckCounter = f.CheckCounter.trim();
+    });
+  }
+  return Array.isArray(data) ? data : [];
+}
+
+// ── AeroDataBox Helpers ────────────────────────────────────────────
+// 全球機場來源（非台灣）via RapidAPI，免費 50 次/月
+
+async function _adbxFlight(apiKey, fno, dateLocal) {
+  // dateLocal: 'YYYY-MM-DD'（當地出發日期）；不傳則查最近一班
+  const path = dateLocal ? `${fno}/${dateLocal}` : fno;
+  const url  = `https://aerodatabox.p.rapidapi.com/flights/number/${path}`;
+  const resp = await fetch(url, {
+    headers: {
+      'x-rapidapi-key':  apiKey,
+      'x-rapidapi-host': 'aerodatabox.p.rapidapi.com',
+    },
+  });
+  if (resp.status === 404) return null;          // 查無此班
+  if (resp.status === 429) throw new Error('AeroDataBox 免費額度已用盡（50次/月），請明日再試');
+  if (!resp.ok) throw new Error(`AeroDataBox error ${resp.status}`);
+  const data = await resp.json();
+  if (!Array.isArray(data) || !data.length) return null;
+
+  // 優先選 IsOperator（實際執飛），過濾 codeshare 掛名班次
+  return data.find(f => f.codeshareStatus === 'IsOperator') || data[0];
+}
+
+// 把 AeroDataBox 回傳正規化成跟 TDX 同樣結構
+function _normalizeAdbx(flight, requestedAirport) {
+  if (!flight) return { departure: null, arrival: null };
+
+  const dep = flight.departure || {};
+  const arr = flight.arrival   || {};
+
+  const _time = (t) => t?.utc ? t.utc.replace('Z','').replace(' ','T') + 'Z' : null;
+  const _status = (s) => {
+    const map = { Arrived:'已到ARRIVED', Departed:'出發DEPARTED', 'En Route':'途中EN ROUTE',
+                  Scheduled:'預計SCHEDULED', Cancelled:'取消CANCELLED', Delayed:'延誤DELAYED',
+                  Unknown:'—' };
+    return map[s] || s || null;
+  };
+
+  return {
+    departure: dep.airport ? {
+      airport:       dep.airport.iata || '?',
+      terminal:      dep.terminal    || null,
+      gate:          dep.gate        || null,
+      checkIn:       dep.checkInDesk || null,
+      scheduledTime: _time(dep.scheduledTime),
+      actualTime:    _time(dep.revisedTime || dep.runwayTime),
+      estimatedTime: null,
+      status:        _status(flight.status),
+    } : null,
+    arrival: arr.airport ? {
+      airport:       arr.airport.iata || '?',
+      terminal:      arr.terminal    || null,
+      gate:          arr.gate        || null,
+      belt:          arr.baggageBelt || null,
+      scheduledTime: _time(arr.scheduledTime),
+      actualTime:    _time(arr.revisedTime || arr.runwayTime),
+      estimatedTime: null,
+      status:        _status(flight.status),
+    } : null,
+    aircraft:     flight.aircraft?.reg   || null,
+    acType:       flight.aircraft?.model || null,
+    lastUpdated:  flight.lastUpdatedUtc  || null,
+  };
+}
+
 // ── ELB Functions ──────────────────────────────────────────────────
 
 const ELB_BASE  = 'https://elb.starlux-airlines.com';
@@ -681,6 +805,7 @@ async function handleRequest(request, env) {
         weight: parsed.weight,
         flightRoute: parsed.flightRoute,
         atsRoute: atsText ? parseATSRoute(atsText) : parsed.flightRoute,
+        icaoFpl: atsText ? extractIcaoFpl(atsText) : null,
         availableDocs: Object.keys(parsed.fileIds),
         // OFP 文字解析補充
         ofp: { ...ofpExtra, flight: flightNum, dep: parsed.dep, dest: parsed.dest },
@@ -1082,6 +1207,93 @@ async function handleRequest(request, env) {
       } catch (e) {
         return new Response(JSON.stringify({ error: e.message }), {
           status: 502, headers: { ...headers, 'Content-Type': 'application/json' }
+        });
+      }
+    }
+
+    // ── GET /api/gate?fno=JX725&date=2026-05-19 ─────────────────────
+    // 不需要 airport 參數：自動查出航班起訖，TW 機場用 TDX，其他用 AeroDataBox
+    // date = 起飛地本地出發日期（昨天/今天/明天），預設今天台灣時間
+    if (url.pathname === '/api/gate' && request.method === 'GET') {
+      const fno = (url.searchParams.get('fno') || '').trim().toUpperCase();
+      if (!fno || !/^[A-Z]{2,3}\d{1,4}$/.test(fno)) {
+        return new Response(JSON.stringify({ error: 'invalid_fno', message: '格式如 JX725' }), {
+          status: 400, headers: { ...headers, 'Content-Type': 'application/json' },
+        });
+      }
+
+      const dateParam  = url.searchParams.get('date');
+      const todayTW    = new Date(Date.now() + 8 * 3600000).toISOString().slice(0, 10);
+      const flightDate = dateParam || todayTW;
+      const parsed     = _parseFno(fno);
+      const TDX_TW     = ['TPE','KHH','RMQ','TSA','MZG','KNH','TNN','HUN','TTT','GNI','MFK','LZN','WOT','CMJ'];
+
+      try {
+        // Step 1：先用 AeroDataBox 取得完整航班（起訖機場 + 目的地 gate）
+        const adbxRaw    = await _adbxFlight(env.RAPIDAPI_KEY, fno, flightDate);
+        if (!adbxRaw) {
+          return new Response(JSON.stringify({ error: 'not_found', fno, flightDate }), {
+            headers: { ...headers, 'Content-Type': 'application/json' },
+          });
+        }
+        const adbx       = _normalizeAdbx(adbxRaw);
+        const depIata    = adbxRaw.departure?.airport?.iata || '';
+        const arrIata    = adbxRaw.arrival?.airport?.iata   || '';
+
+        // Step 2：若起訖機場有台灣機場，用 TDX 覆蓋（更即時、有 checkIn/belt）
+        const needTdxDep = parsed && TDX_TW.includes(depIata);
+        const needTdxArr = parsed && TDX_TW.includes(arrIata);
+
+        let tdxDepData = null, tdxArrData = null;
+        if (needTdxDep || needTdxArr) {
+          const tdxToken = await _tdxGetToken(env);
+          const [tdxDepList, tdxArrList] = await Promise.all([
+            needTdxDep ? _tdxFIDS(tdxToken, depIata, 'Departure', parsed, flightDate) : [],
+            needTdxArr ? _tdxFIDS(tdxToken, arrIata, 'Arrival',   parsed, flightDate) : [],
+          ]);
+          tdxDepData = tdxDepList[0] || null;
+          tdxArrData = tdxArrList[0] || null;
+        }
+
+        // Step 3：合併，TDX 優先（TW 機場），AeroDataBox 補全球資料
+        const finalDep = tdxDepData ? {
+          airport:       depIata,
+          terminal:      tdxDepData.Terminal     || null,
+          gate:          tdxDepData.Gate         || null,
+          checkIn:       tdxDepData.CheckCounter || null,
+          scheduledTime: tdxDepData.ScheduleDepartureTime  || null,
+          actualTime:    tdxDepData.ActualDepartureTime    || null,
+          estimatedTime: tdxDepData.EstimatedDepartureTime || null,
+          status:        tdxDepData.DepartureRemark        || null,
+          source:        'TDX',
+        } : adbx.departure ? { ...adbx.departure, source: 'AeroDataBox' } : null;
+
+        const finalArr = tdxArrData ? {
+          airport:       arrIata,
+          terminal:      tdxArrData.Terminal     || null,
+          gate:          tdxArrData.Gate         || null,
+          belt:          tdxArrData.BaggageClaim || null,
+          scheduledTime: tdxArrData.ScheduleArrivalTime  || null,
+          actualTime:    tdxArrData.ActualArrivalTime    || null,
+          estimatedTime: tdxArrData.EstimatedArrivalTime || null,
+          status:        tdxArrData.ArrivalRemark        || null,
+          source:        'TDX',
+        } : adbx.arrival ? { ...adbx.arrival, source: 'AeroDataBox' } : null;
+
+        return new Response(JSON.stringify({
+          fno, flightDate,
+          departure:   finalDep,
+          arrival:     finalArr,
+          aircraft:    adbx.aircraft,
+          acType:      adbx.acType,
+          lastUpdated: adbx.lastUpdated,
+          fetchedAt:   new Date().toISOString(),
+        }), {
+          headers: { ...headers, 'Content-Type': 'application/json', 'Cache-Control': 'public, max-age=90' },
+        });
+      } catch (e) {
+        return new Response(JSON.stringify({ error: e.message, fno }), {
+          status: 502, headers: { ...headers, 'Content-Type': 'application/json' },
         });
       }
     }

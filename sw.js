@@ -1,4 +1,4 @@
-const CACHE = 'kneeboard-v17';
+const CACHE = 'kneeboard-v21';
 const PRECACHE = [
   './',
   './index.html',
@@ -22,15 +22,24 @@ const PRECACHE = [
   './manifest.json',
 ];
 
+// ── Dev mode：localhost / 127.0.0.1 完全不快取 ──────────────────
+const IS_DEV = self.location.hostname === 'localhost'
+            || self.location.hostname === '127.0.0.1';
+
 self.addEventListener('install', e => {
-  console.log('[SW] Installing v17...');
+  console.log(`[SW] Installing ${CACHE}${IS_DEV ? ' (DEV — no cache)' : ''}...`);
+  if (IS_DEV) {
+    // Dev mode：直接 skipWaiting，不預快取任何東西
+    self.skipWaiting();
+    return;
+  }
   e.waitUntil(
     caches.open(CACHE).then(c => c.addAll(PRECACHE)).then(() => self.skipWaiting())
   );
 });
 
 self.addEventListener('activate', e => {
-  console.log('[SW] Activating v17...');
+  console.log(`[SW] Activating ${CACHE}...`);
   e.waitUntil(
     caches.keys().then(keys =>
       Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k)))
@@ -39,6 +48,12 @@ self.addEventListener('activate', e => {
 });
 
 self.addEventListener('fetch', e => {
+  // Dev mode：所有請求走 network，不經 cache
+  if (IS_DEV) {
+    e.respondWith(fetch(e.request));
+    return;
+  }
+
   const url = new URL(e.request.url);
 
   // Always network-first for Cloudflare Worker API calls
@@ -53,7 +68,7 @@ self.addEventListener('fetch', e => {
     return;
   }
 
-  // Cache-first for app shell
+  // Cache-first for app shell (production only)
   e.respondWith(
     caches.match(e.request).then(cached => {
       if (cached) return cached;
