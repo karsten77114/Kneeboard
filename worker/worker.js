@@ -162,6 +162,7 @@ function _normalizeAdbx(flight, requestedAirport) {
     } : null,
     aircraft:     flight.aircraft?.reg   || null,
     acType:       flight.aircraft?.model || null,
+    aircraftHex:  flight.aircraft?.modeS || null,  // ICAO24 for ADS-B lookup
     lastUpdated:  flight.lastUpdatedUtc  || null,
   };
 }
@@ -1310,6 +1311,7 @@ async function handleRequest(request, env) {
           arrival:     finalArr,
           aircraft:    adbx.aircraft,
           acType:      adbx.acType,
+          aircraftHex: adbx.aircraftHex,
           lastUpdated: adbx.lastUpdated,
           fetchedAt:   new Date().toISOString(),
         }), {

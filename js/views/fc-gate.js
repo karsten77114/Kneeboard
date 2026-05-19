@@ -118,6 +118,8 @@ async function _search(container) {
   try {
     const data = await fetchGate(fno, dateStr);
     result.innerHTML = _renderCard(data);
+    // Async ADS-B lookup — don't await, fills in after render
+    if (data.aircraftHex || data.aircraft) _fetchAircraftLive(data);
   } catch (e) {
     result.innerHTML = `
       <div style="padding:14px;background:var(--surface);border:1px solid var(--red)33;
@@ -164,6 +166,16 @@ function _renderCard(data) {
         <span style="color:var(--text3);font-size:12px">✈️</span>
         <span style="font-family:var(--font-mono);font-size:13px;color:var(--text2);font-weight:600">${data.aircraft}</span>
         ${data.acType ? `<span style="color:var(--text3);font-size:11px">${data.acType}</span>` : ''}
+      </div>` : ''}
+
+      <!-- Aircraft live status (filled async by _fetchAircraftLive) -->
+      ${(data.aircraft || data.aircraftHex) ? `
+      <div id="gate-ac-status" style="margin-bottom:10px">
+        <div class="card" style="padding:10px 14px;display:flex;align-items:center;gap:8px">
+          <span style="font-family:var(--font-mono);font-size:13px;font-weight:700;color:var(--text2)">${data.aircraft || '—'}</span>
+          ${data.acType ? `<span style="color:var(--text3);font-size:11px">${data.acType}</span>` : ''}
+          <div class="wx-spin-sm" style="margin-left:auto"></div>
+        </div>
       </div>` : ''}
 
       <!-- DEP + ARR side by side -->
@@ -264,4 +276,115 @@ function _fmtTime(iso) {
   } catch {
     return iso.substring(11, 16);
   }
+}
+
+// ── Aircraft Live Status (OpenSky ADS-B) ────────────────────────────
+
+async function _fetchAircraftLive(data) {
+  const el = document.getElementById('gate-ac-status');
+  if (!el) return;
+
+  const hex = data.aircraftHex?.toLowerCase();
+  const reg = data.aircraft || '—';
+  const acType = data.acType || '';
+
+  if (!hex) {
+    // No hex — just show registration without live data
+    el.innerHTML = _acStatusCard(reg, acType, null);
+    return;
+  }
+
+  try {
+    const resp = await fetch(`https://opensky-network.org/api/states/all?icao24=${hex}`, {
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!resp.ok) throw new Error('OpenSky error');
+    const json = await resp.json();
+    const s = json.states?.[0];
+
+    if (!s) {
+      // Aircraft not tracked — probably on ground, signal lost
+      el.innerHTML = _acStatusCard(reg, acType, { onGround: true, noSignal: true });
+      return;
+    }
+
+    const callsign    = (s[1] || '').trim();
+    const onGround    = s[8];
+    const altM        = s[7];   // baro altitude in metres
+    const velMs       = s[9];   // ground speed in m/s
+    const heading     = s[10];  // true track in degrees
+    const lastContact = s[4];   // unix timestamp
+
+    const fl  = (!onGround && altM != null) ? Math.round(altM / 30.48) : null;
+    const kt  = (!onGround && velMs != null) ? Math.round(velMs * 1.944) : null;
+    const age = lastContact ? Math.round((Date.now() / 1000 - lastContact) / 60) : null; // minutes ago
+
+    el.innerHTML = _acStatusCard(reg, acType, { callsign, onGround, fl, kt, heading, age });
+  } catch {
+    el.innerHTML = _acStatusCard(reg, acType, null);
+  }
+}
+
+function _acStatusCard(reg, acType, live) {
+  const typeChip = acType
+    ? `<span style="color:var(--text3);font-size:11px">${acType}</span>` : '';
+
+  if (!live) {
+    // Loading failed or no hex — show just registration
+    return `
+      <div class="card" style="padding:10px 14px;display:flex;align-items:center;gap:8px">
+        <span style="font-size:14px">🛩</span>
+        <span style="font-family:var(--font-mono);font-size:13px;font-weight:700">${reg}</span>
+        ${typeChip}
+      </div>`;
+  }
+
+  if (live.onGround) {
+    const note = live.noSignal ? '（訊號中斷，可能在地面）' : '在地面';
+    return `
+      <div class="card" style="padding:10px 14px;display:flex;align-items:center;gap:8px">
+        <span style="font-size:14px">🛬</span>
+        <span style="font-family:var(--font-mono);font-size:13px;font-weight:700">${reg}</span>
+        ${typeChip}
+        <span style="margin-left:auto;color:var(--green);font-size:12px;font-weight:700">${note}</span>
+      </div>`;
+  }
+
+  // Airborne
+  const { callsign, fl, kt, heading, age } = live;
+  const hdg = heading != null ? _hdgArrow(heading) : '';
+  const flStr = fl != null ? `FL${fl}` : '';
+  const ktStr = kt != null ? `${kt}kt` : '';
+  const ageStr = age != null && age > 2 ? `（${age}分鐘前）` : '';
+
+  // STARLUX ICAO callsign = AXB → display as JX
+  const displayCall = callsign ? callsign.replace(/^AXB(\d+)/, 'JX$1') : '';
+  const callChip = displayCall
+    ? `<span style="font-family:var(--font-mono);font-size:12px;color:var(--gold);font-weight:700;
+                    border:1px solid rgba(196,154,60,.35);border-radius:4px;padding:1px 7px">${displayCall}</span>` : '';
+
+  return `
+    <div class="card" style="padding:10px 14px;border-left:3px solid var(--gold)">
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+        <span style="font-size:14px">✈️</span>
+        <span style="font-family:var(--font-mono);font-size:13px;font-weight:700">${reg}</span>
+        ${typeChip}
+        ${callChip}
+        <span style="margin-left:auto;color:var(--gold);font-size:11px;font-weight:700">AIRBORNE</span>
+      </div>
+      ${(flStr || ktStr) ? `
+      <div style="font-family:var(--font-mono);font-size:12px;color:var(--text2);margin-top:6px">
+        ${[flStr, ktStr, hdg].filter(Boolean).join(' · ')}${ageStr}
+      </div>` : ''}
+      ${displayCall ? `
+      <div style="margin-top:6px;color:var(--gold);font-size:12px">
+        ⚠️ 前序 ${displayCall} 仍在空中，本航班可能延誤
+      </div>` : ''}
+    </div>`;
+}
+
+function _hdgArrow(deg) {
+  // 8-direction arrow based on heading
+  const dirs = ['↑','↗','→','↘','↓','↙','←','↖'];
+  return dirs[Math.round(deg / 45) % 8];
 }

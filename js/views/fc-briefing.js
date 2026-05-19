@@ -255,7 +255,10 @@ function _arcCard(dep, dest, fltNo, t, cruiseFL, block, remaining, reg, date, cr
         <div class="arc-center">
           <div class="arc-ete">${ete}</div>
           <div class="arc-sub">Block ${blockStr} · Rem ${remStr}</div>
-          ${reg !== '—' ? `<div class="arc-sub" style="color:var(--blue)">${reg}${date ? ' · ' + _dateLabel(date) : ''}</div>` : ''}
+          ${reg !== '—' ? `<div class="arc-sub" style="color:var(--blue);display:flex;align-items:center;justify-content:center;gap:6px;flex-wrap:wrap">
+            <span>${reg}${date ? ' · ' + _dateLabel(date) : ''}</span>
+            ${_elbStatusChip()}
+          </div>` : ''}
         </div>
         <div class="arc-tblock arc-tblock-r">
           <div class="arc-tlbl">STA</div>
@@ -554,6 +557,37 @@ function _bindCrew(crewKey, fltNo, dep, dest, t, cruiseFL, block) {
       showToast('複製失敗', true);
     }
   });
+}
+
+// ── ELB Aircraft Status Chip ─────────────────────────────────────
+
+function _elbStatusChip() {
+  const elb = store.elbData;
+  if (!elb || elb.loading) return '';
+  if (elb.inFlight) {
+    // Aircraft is currently airborne on a previous sector
+    const prev = elb.flights?.[0];
+    const offT = prev?.oooiOff?.actual || prev?.oooiOut?.actual;
+    const callHint = offT
+      ? ` · OFF ${new Date(offT).toLocaleTimeString('zh-TW',{ hour:'2-digit', minute:'2-digit', hour12:false, timeZone:'Asia/Taipei' })}L`
+      : '';
+    return `<span style="font-size:10px;font-weight:700;color:var(--gold);
+      background:rgba(196,154,60,.15);border:1px solid rgba(196,154,60,.3);
+      border-radius:10px;padding:1px 8px;white-space:nowrap">
+      ✈ 在空中${callHint}
+    </span>`;
+  }
+  // On ground — show last landing time if available
+  const prev = elb.flights?.[0];
+  const inT  = prev?.oooiIn?.actual || prev?.oooiOn?.actual;
+  const inHint = inT
+    ? ` · IN ${new Date(inT).toLocaleTimeString('zh-TW',{ hour:'2-digit', minute:'2-digit', hour12:false, timeZone:'Asia/Taipei' })}L`
+    : '';
+  return `<span style="font-size:10px;font-weight:700;color:var(--green);
+    background:rgba(34,197,94,.1);border:1px solid rgba(34,197,94,.2);
+    border-radius:10px;padding:1px 8px;white-space:nowrap">
+    🛬 在地面${inHint}
+  </span>`;
 }
 
 // ── MEL ──────────────────────────────────────────────────────────
