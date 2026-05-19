@@ -33,8 +33,9 @@
   --violet: #7b2fff;
 
   /* Layout */
-  --topbar-h:  104px;
-  --tabbar-h:  60px;
+  --topbar-h:    62px;
+  --searchbar-h: 46px;
+  --tabbar-h:    60px;
   --radius-sm: 6px;
   --radius-md: 12px;
   --radius-lg: 16px;

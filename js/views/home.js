@@ -24,6 +24,7 @@ const PIREPS = [
   { id: 'F2', cat: 'Final', label: 'OFP Signed' },
 ];
 
+
 export function mount(container) {
   container.innerHTML = `
     <div class="view-content">
@@ -113,7 +114,7 @@ export function mount(container) {
   _renderAuthStatus();
   _renderPireps();
 
-  // Re-render when auth or flight changes
+  // Re-render when flight or auth changes
   const unsub = store.subscribe(() => {
     _renderAuthStatus();
     _renderPireps();
@@ -153,24 +154,16 @@ function _updateDot(system) {
 }
 
 function _initAuth() {
-  // Restore stored sessions into store on mount ONLY if not already set
-  // This avoids overwriting an 'expired' status set by verifySessions
+  // Restore stored sessions into store on mount
   const lido = storage.getLidoCredentials();
-  if (lido.userId && store.auth.lido.status === 'idle') {
-    if (lido.token) {
-      store.setAuth('lido', { token: lido.token, userId: lido.userId, status: 'ok' });
-    } else {
-      store.setAuth('lido', { status: 'expired' });
-    }
+  if (lido.token && lido.userId) {
+    store.setAuth('lido', { token: lido.token, userId: lido.userId, status: 'ok' });
+  } else if (lido.userId) {
+    store.setAuth('lido', { status: 'expired' });
   }
-
   const elb = storage.getELBCredentials();
-  if (elb.userId && store.auth.elb.status === 'idle') {
-    if (elb.token) {
-      store.setAuth('elb', { token: elb.token, userId: elb.userId, status: 'ok' });
-    } else {
-      store.setAuth('elb', { status: 'expired' });
-    }
+  if (elb.token && elb.userId) {
+    store.setAuth('elb', { token: elb.token, userId: elb.userId, status: 'ok' });
   }
 
   // LIDO modal
@@ -242,8 +235,9 @@ function _renderPireps() {
   if (!store.flight) { section.classList.add('hidden'); return; }
   section.classList.remove('hidden');
 
-  const pirepsKey = `${store.flight.flightNumber}_${store.flight.date}`;
-  const saved = storage.getPireps(pirepsKey);
+  const pirepsKey = store.flight.flightNumber && store.flight.date
+    ? `${store.flight.flightNumber}_${store.flight.date}` : '';
+  const saved = pirepsKey ? storage.getPireps(pirepsKey) : {};
   let currentCat = '';
   let html = '';
 
@@ -275,7 +269,7 @@ function _renderPireps() {
   });
 
   document.getElementById('btn-reset-pireps').onclick = () => {
-    storage.savePireps(pirepsKey, {});
+    if (pirepsKey) storage.savePireps(pirepsKey, {});
     _renderPireps();
   };
 }

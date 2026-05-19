@@ -616,6 +616,13 @@ function parseATSRoute(txt) {
   return lines.join(' ');
 }
 
+// 提取完整 ICAO FPL 區塊（含括號），供 WNI 等工具使用
+function extractIcaoFpl(txt) {
+  if (!txt) return null;
+  const m = txt.match(/\(FPL[\s\S]+?\)/);
+  return m ? m[0].trim() : null;
+}
+
 // 主 Handler
 async function handleRequest(request, env) {
   const url = new URL(request.url);

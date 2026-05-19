@@ -1,32 +1,16 @@
 /* ── Top Bar ──────────────────────────────────────────────────── */
 #topbar {
   position: fixed; top: 0; left: 0; right: 0;
-  height: calc(var(--topbar-h) + env(safe-area-inset-top, 0px));
+  height: var(--topbar-h);
   background: rgba(12,17,24,0.88);
   border-bottom: 1px solid var(--border);
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
-  display: flex;
-  flex-direction: column;
-  justify-content: flex-end;
-  padding: 0 16px 8px;
-  padding-top: env(safe-area-inset-top, 6px);
-  gap: 6px;
-  z-index: 200;
-}
-
-/* Row 1: logo | flight info | UTC */
-#topbar-row1 {
   display: grid;
-  grid-template-columns: 56px 1fr 80px;
+  grid-template-columns: 80px 1fr 80px;
   align-items: center;
-}
-
-/* Row 2: search form */
-#topbar-row2 {
-  display: flex;
-  align-items: center;
-  gap: 5px;
+  padding: 0 16px;
+  z-index: 200;
 }
 
 .topbar-logo {
@@ -91,10 +75,71 @@
   display: block; text-align: right;
 }
 
+/* ── Search Bar ───────────────────────────────────────────────── */
+#searchbar {
+  position: fixed;
+  top: var(--topbar-h);
+  left: 0; right: 0;
+  height: var(--searchbar-h);
+  background: rgba(20,28,40,0.92);
+  border-bottom: 1px solid var(--border);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  display: flex;
+  align-items: center;
+  padding: 0 12px;
+  gap: 8px;
+  z-index: 190;
+}
+
+.sb-flight-info {
+  flex: 1; display: flex; align-items: center; gap: 8px;
+  min-width: 0; overflow: hidden;
+}
+.sb-flt {
+  font-size: 14px; font-weight: 900; color: var(--gold);
+  font-family: 'JetBrains Mono','SF Mono', monospace; flex-shrink: 0;
+}
+.sb-route {
+  font-size: 13px; font-weight: 700; color: var(--text);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex-shrink: 1;
+}
+.sb-search-form {
+  flex: 1; display: flex; align-items: center; gap: 6px; min-width: 0;
+}
+.sb-input {
+  flex: 1; max-width: 120px;
+  height: 30px; padding: 0 10px;
+  font-size: 14px; font-weight: 700; font-family: 'JetBrains Mono','SF Mono',monospace;
+  background: rgba(0,0,0,.35); border: 1px solid rgba(196,154,60,.25);
+  border-radius: 6px; color: var(--text); outline: none;
+  text-transform: uppercase; letter-spacing: .5px;
+}
+.sb-input:focus { border-color: var(--gold); }
+.sb-input::placeholder { color: var(--text3); font-weight: 400; letter-spacing: 0; }
+.sb-hint {
+  font-size: 11px; color: var(--text3); white-space: nowrap; flex-shrink: 0;
+}
+.sb-nav-btn {
+  height: 30px; padding: 0 8px;
+  background: rgba(0,0,0,.3); border: 1px solid rgba(196,154,60,.2);
+  border-radius: 6px; color: var(--text2); font-size: 12px;
+  cursor: pointer; flex-shrink: 0; line-height: 1;
+}
+.sb-nav-btn:active { opacity: .6; }
+.sb-date-input {
+  height: 30px; padding: 0 6px;
+  font-size: 12px; font-family: 'JetBrains Mono','SF Mono',monospace;
+  background: rgba(0,0,0,.35); border: 1px solid rgba(196,154,60,.25);
+  border-radius: 6px; color: var(--text); outline: none;
+  flex-shrink: 1; min-width: 0; width: 130px;
+  color-scheme: dark;
+}
+
 /* ── Main content ─────────────────────────────────────────────── */
 #main {
   position: fixed;
-  top: calc(var(--topbar-h) + env(safe-area-inset-top, 0px));
+  top: calc(var(--topbar-h) + var(--searchbar-h));
   bottom: var(--tabbar-h);
   left: 0; right: 0;
   overflow-y: auto;
@@ -174,7 +219,7 @@
   #tabbar { display: none; }
   #sidebar {
     display: flex; flex-direction: column;
-    position: fixed; top: calc(var(--topbar-h) + env(safe-area-inset-top, 0px)); bottom: 0; left: 0;
+    position: fixed; top: calc(var(--topbar-h) + var(--searchbar-h)); bottom: 0; left: 0;
     width: 200px;
     background: rgba(12,17,24,0.90);
     border-right: 1px solid var(--border);

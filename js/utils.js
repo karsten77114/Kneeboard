@@ -31,7 +31,6 @@ const _IATA2ICAO = {
 export function toICAO(code) {
   if (!code) return code;
   const u = String(code).trim().toUpperCase().split('/')[0];
-  // Already ICAO (4 chars starting with letter)
   if (/^[A-Z]{4}$/.test(u)) return u;
   return _IATA2ICAO[u] || u;
 }

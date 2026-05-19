@@ -5,12 +5,7 @@ let layerGroup = null;
 
 export function mount(container) {
   _render(container);
-  // Delay map init so CSS layout is fully computed before Leaflet measures the container
-  requestAnimationFrame(() => {
-    setTimeout(() => {
-      _initMap();
-    }, 80);
-  });
+  _initMap();
 }
 
 export function unmount(container) {
@@ -47,7 +42,7 @@ function _render(container) {
     </div>
 
     <style>
-      .fc-notam-radar { height: calc(100vh - var(--topbar-h) - env(safe-area-inset-top, 0px) - var(--tabbar-h)); padding: 10px; overflow: hidden; }
+      .fc-notam-radar { height: calc(100vh - var(--topbar-h) - var(--tabbar-h)); padding: 10px; overflow: hidden; }
       .radar-layout { display: grid; grid-template-columns: 320px 1fr; gap: 10px; height: 100%; }
       .radar-panel { overflow-y: auto; padding-right: 4px; }
       .radar-map-wrap { position: relative; border-radius: var(--radius-md); overflow: hidden; border: 1px solid var(--border); background: var(--bg-base); }
@@ -67,7 +62,7 @@ function _render(container) {
       @media (max-width: 900px) {
         .fc-notam-radar { height: auto; overflow: visible; padding-bottom: 20px; }
         .radar-layout { grid-template-columns: 1fr; height: auto; }
-        .radar-map-wrap { height: 350px; }
+        .radar-map-wrap { height: 400px; order: -1; }
       }
 
       /* Leaflet grayscale map */
@@ -101,9 +96,10 @@ function _initMap() {
 
   layerGroup = L.layerGroup().addTo(map);
 
-  // Force size recalculation so tiles load correctly (critical on mobile)
-  map.invalidateSize();
-  setTimeout(() => map.invalidateSize(), 300);
+  // Try to center on current flight destination if available
+  if (store.flight && store.flight.dest) {
+    // We would need a coordinate lookup for airports here, but for now just stay at Taiwan center
+  }
 }
 
 function _clearMap() {
