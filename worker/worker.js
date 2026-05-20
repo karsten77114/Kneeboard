@@ -1534,10 +1534,14 @@ async function handleRequest(request, env) {
                      : parts.some(p => p.inline_data?.mime_type?.includes('image')) ? 'image'
                      : 'text';
 
+      // 保存原始文字，方便日後重新分析
+      const rawTextForStorage = parts.find(p => p.text && p.text.includes('公告內容:'))?.text?.split('公告內容:\n')[1] || '';
+
       const notice = {
         id:          generateUUID(),
         created_at:  new Date().toISOString(),
         source_type: srcType,
+        raw_text:    rawTextForStorage.slice(0, 3000), // 最多存 3000 字
         ...analyzed,
         ...(dateOverride ? { effective_date: dateOverride } : {}),
       };
