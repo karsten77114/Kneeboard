@@ -239,6 +239,8 @@ async function _doLogin(system) {
 // ── PIREPS ────────────────────────────────────────────────────────
 
 function _renderPireps() {
+  return; // HIDDEN — uncomment body below to restore
+  /* eslint-disable no-unreachable */
   const section = document.getElementById('pireps-section');
   const list    = document.getElementById('pireps-list');
   if (!section || !list) return;
