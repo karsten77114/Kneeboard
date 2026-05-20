@@ -42,6 +42,12 @@ function init() {
 
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('./sw.js').catch(() => {});
+    navigator.serviceWorker.addEventListener('message', event => {
+      if (event.data?.type === 'SW_UPDATED') {
+        showToast('✅ 應用程式已更新至最新版本');
+        setTimeout(() => window.location.reload(), 1500);
+      }
+    });
   }
 }
 

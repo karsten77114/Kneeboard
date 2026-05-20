@@ -329,7 +329,7 @@ function _applyStyles() {
     /* Notice items */
     .nb-list {
       display: flex; flex-direction: column; gap: 6px;
-      max-height: 420px; overflow-y: auto;
+      max-height: 345px; overflow-y: auto;
       padding-right: 2px;
       scrollbar-width: thin;
       scrollbar-color: var(--border, #1e3050) transparent;

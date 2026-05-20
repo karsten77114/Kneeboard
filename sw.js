@@ -1,4 +1,4 @@
-const CACHE = 'kneeboard-v30';
+const CACHE = 'kneeboard-v31';
 const PRECACHE = [
   './',
   './index.html',
@@ -30,7 +30,6 @@ const IS_DEV = self.location.hostname === 'localhost'
 self.addEventListener('install', e => {
   console.log(`[SW] Installing ${CACHE}${IS_DEV ? ' (DEV — no cache)' : ''}...`);
   if (IS_DEV) {
-    // Dev mode：直接 skipWaiting，不預快取任何東西
     self.skipWaiting();
     return;
   }
@@ -44,7 +43,12 @@ self.addEventListener('activate', e => {
   e.waitUntil(
     caches.keys().then(keys =>
       Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k)))
-    ).then(() => self.clients.claim())
+    ).then(() => self.clients.claim()).then(() => {
+      // 新版 SW 接管後，通知所有開啟的頁面重新整理
+      return self.clients.matchAll({ type: 'window' }).then(clients => {
+        clients.forEach(client => client.postMessage({ type: 'SW_UPDATED', version: CACHE }));
+      });
+    })
   );
 });
 
@@ -57,7 +61,7 @@ self.addEventListener('fetch', e => {
 
   const url = new URL(e.request.url);
 
-  // Always network-first for Cloudflare Worker API calls
+  // Always network-first for API calls
   if (url.hostname.endsWith('.workers.dev') || url.hostname.includes('unpkg.com')) {
     e.respondWith(
       fetch(e.request).catch(() =>
@@ -69,17 +73,19 @@ self.addEventListener('fetch', e => {
     return;
   }
 
-  // Cache-first for app shell (production only)
+  // Stale-while-revalidate：先回傳快取（快），同時背景更新快取（保持最新）
+  // 下次開啟頁面就是新版，並透過 SW_UPDATED 訊息提示使用者
   e.respondWith(
-    caches.match(e.request).then(cached => {
-      if (cached) return cached;
-      return fetch(e.request).then(resp => {
-        if (resp.ok && e.request.method === 'GET') {
-          const clone = resp.clone();
-          caches.open(CACHE).then(c => c.put(e.request, clone));
-        }
-        return resp;
-      });
-    })
+    caches.open(CACHE).then(cache =>
+      cache.match(e.request).then(cached => {
+        const fetchPromise = fetch(e.request).then(response => {
+          if (response.ok && e.request.method === 'GET') {
+            cache.put(e.request, response.clone());
+          }
+          return response;
+        }).catch(() => cached);
+        return cached || fetchPromise;
+      })
+    )
   );
 });
