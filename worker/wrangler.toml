@@ -7,3 +7,11 @@ LIDO_USER_ID = "2317073"
 
 # Secrets set via: wrangler secret put LIDO_PASSWORD
 # Secrets set via: wrangler secret put ELB_PASSWORD
+# Secrets set via: wrangler secret put GEMINI_API_KEY
+# Secrets set via: wrangler secret put UPLOAD_TOKEN    ← 自訂一組密碼，iOS Shortcut 帶入
+
+[[kv_namespaces]]
+binding = "NOTICES_KV"
+id = "6430558b8a944c15949ad9d4a88944ab"
+# 建立方式：wrangler kv namespace create NOTICES_KV
+# 建立後把回傳的 id 填到上面這行

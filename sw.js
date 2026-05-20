@@ -1,4 +1,4 @@
-const CACHE = 'kneeboard-v22';
+const CACHE = 'kneeboard-v28';
 const PRECACHE = [
   './',
   './index.html',
@@ -10,6 +10,7 @@ const PRECACHE = [
   './js/services/api.js',
   './js/services/storage.js',
   './js/views/home.js',
+  './js/views/notice-board.js',
   './js/views/flightcrew.js',
   './js/views/fc-briefing.js',
   './js/views/fc-elb.js',

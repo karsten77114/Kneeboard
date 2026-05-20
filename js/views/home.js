@@ -2,6 +2,7 @@ import store from '../store.js';
 import storage from '../services/storage.js';
 import { lidoLogin, elbLogin } from '../services/api.js';
 import { showToast } from '../utils.js';
+import { mountNoticeBoard } from './notice-board.js';
 
 // ── PIREPS checklist definition ───────────────────────────────────
 const PIREPS = [
@@ -28,6 +29,9 @@ const PIREPS = [
 export function mount(container) {
   container.innerHTML = `
     <div class="view-content">
+
+      <!-- Notice Board (mounted by notice-board.js) -->
+      <div id="notice-board-mount"></div>
 
       <!-- Connection Center -->
       <div class="section-title">連線中心 Connection Hub</div>
@@ -110,6 +114,10 @@ export function mount(container) {
   `;
 
   _applyStyles();
+
+  // Mount notice board component
+  mountNoticeBoard(container.querySelector('#notice-board-mount'));
+
   _initAuth();
   _renderAuthStatus();
   _renderPireps();
