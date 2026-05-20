@@ -120,6 +120,7 @@ function _render(container) {
       </div>`;
     return;
   }
+  _ensureElbLoaded();
 
   const o      = d.ofp      || {};
   const t      = d.times    || {};
