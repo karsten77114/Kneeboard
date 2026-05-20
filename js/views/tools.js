@@ -1212,7 +1212,12 @@ function _renderFpl(panel) {
     <div class="card" style="margin-bottom:12px">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
         <div class="card-title" style="margin:0">飛行計畫輸入</div>
-        ${autoFpl ? `<span style="font-size:11px;color:var(--green);font-weight:600">✓ 已從 LIDO 自動帶入</span>` : ''}
+        ${autoFpl
+          ? `<span style="font-size:11px;color:var(--green);font-weight:600">✓ 已從 LIDO 自動帶入</span>`
+          : store.briefing
+            ? `<span style="font-size:11px;color:var(--text3)">航班已載入，但 LIDO 未回傳 FPL 資料</span>`
+            : `<span style="font-size:11px;color:var(--text3)">尚未載入航班</span>`
+        }
       </div>
       <textarea id="fpl-input" class="input mono" rows="5"
         placeholder="(FPL-JX726-IS&#10;-A321/M&#10;-SDE3FGHIJ4J5M1RWXYZ/LB1V1&#10;-WMKK0920&#10;-N0450F370 DCT MAYAN ...&#10;-RCTP0255 RCSS&#10;-PBN/A1B1C1D1L1O1S2 NAV/... REG/B58212 SEL/HKJP)"

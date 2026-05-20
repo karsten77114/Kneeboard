@@ -160,17 +160,11 @@ function _renderSearchBar() {
   const prevFlight = searchbarEl.querySelector('#sb-flt-input')?.value || '';
 
   if (f) {
-    // Flight loaded — show compact info + change form
+    // Flight loaded — topbar already shows flight info, just show search form
     searchbarEl.innerHTML = `
-      <div class="sb-flight-info">
-        <span class="sb-flt">${f.flightNumber || ''}</span>
-        <span class="sb-route">${toICAO(f.dep) || ''}→${toICAO(f.dest) || ''}
-          ${f.std ? `<span style="font-size:11px;color:var(--text3);margin-left:4px">${f.std}</span>` : ''}
-        </span>
-      </div>
-      <div class="sb-search-form" style="flex:0 0 auto">
+      <div class="sb-search-form">
         <input class="sb-input" id="sb-flt-input" placeholder="換班號" maxlength="4"
-               style="width:80px;font-size:13px">
+               style="width:72px;font-size:13px">
         <button class="sb-nav-btn" id="sb-prev">◄</button>
         <input type="date" id="sb-date-input" class="sb-date-input"
                value="${_sbDate.replace(/(\d{4})(\d{2})(\d{2})/, '$1-$2-$3')}">

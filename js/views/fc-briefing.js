@@ -65,9 +65,7 @@ async function _autoFillGate() {
     const depAuto  = document.getElementById('c-dep-auto');
     const arrAuto  = document.getElementById('c-arr-auto');
     const depTerm  = document.getElementById('c-dep-term');
-    const depSlash = document.getElementById('c-dep-slash');
     const arrTerm  = document.getElementById('c-arr-term');
-    const arrSlash = document.getElementById('c-arr-slash');
 
     // DEP gate + terminal
     if (gateData.departure?.gate && depInput && !depInput.value) {
@@ -77,8 +75,7 @@ async function _autoFillGate() {
     }
     if (gateData.departure?.terminal) {
       crew.dep_term = gateData.departure.terminal;
-      if (depTerm) { depTerm.textContent = gateData.departure.terminal; depTerm.style.display = 'inline'; }
-      if (depSlash) depSlash.style.display = 'inline';
+      if (depTerm) { depTerm.textContent = 'T' + gateData.departure.terminal; depTerm.style.display = 'inline'; }
       changed = true;
     }
 
@@ -90,8 +87,7 @@ async function _autoFillGate() {
     }
     if (gateData.arrival?.terminal) {
       crew.arr_term = gateData.arrival.terminal;
-      if (arrTerm) { arrTerm.textContent = gateData.arrival.terminal; arrTerm.style.display = 'inline'; }
-      if (arrSlash) arrSlash.style.display = 'inline';
+      if (arrTerm) { arrTerm.textContent = 'T' + gateData.arrival.terminal; arrTerm.style.display = 'inline'; }
       changed = true;
     }
 
@@ -121,6 +117,7 @@ function _render(container) {
     return;
   }
   _ensureElbLoaded();
+  _autoFillGate();
 
   const o      = d.ofp      || {};
   const t      = d.times    || {};
@@ -278,13 +275,11 @@ function _arcCard(dep, dest, fltNo, t, cruiseFL, block, remaining, reg, date, cr
             <div class="wx-hdr">${toICAO(dep)} WX</div>
             <div id="wx-${toICAO(dep)}-inline" class="wx-body-sm"><div class="wx-spin-sm"></div></div>
             <div style="display:flex;align-items:center;gap:6px;margin-top:8px">
-              <span class="brief-lbl" style="margin:0">Gate</span>
               <span id="c-dep-term"
-                style="font-family:var(--font-mono);font-size:13px;color:var(--text2);font-weight:700;
-                       display:${crew.dep_term ? 'inline' : 'none'}">${_esc(crew.dep_term||'')}</span>
-              <span id="c-dep-slash"
-                style="color:var(--text3);font-size:13px;
-                       display:${crew.dep_term ? 'inline' : 'none'}">/</span>
+                style="font-family:var(--font-mono);font-size:12px;color:var(--text3);font-weight:700;
+                       background:rgba(148,163,184,.12);border-radius:4px;padding:1px 5px;
+                       display:${crew.dep_term ? 'inline' : 'none'}">T${_esc(crew.dep_term||'')}</span>
+              <span class="brief-lbl" style="margin:0">Gate</span>
               <input id="c-dep" class="input" type="text"
                 style="width:72px;height:32px;padding:4px 8px;text-align:center;font-weight:700"
                 value="${_esc(crew.dep_gate||'')}" placeholder="B3"/>
@@ -297,16 +292,14 @@ function _arcCard(dep, dest, fltNo, t, cruiseFL, block, remaining, reg, date, cr
             <div id="wx-${toICAO(dest)}-inline" class="wx-body-sm"><div class="wx-spin-sm"></div></div>
             <div style="display:flex;align-items:center;gap:6px;margin-top:8px;justify-content:flex-end">
               <span id="c-arr-auto" style="font-size:11px;color:var(--green)"></span>
+              <span class="brief-lbl" style="margin:0">Gate</span>
               <input id="c-arr" class="input" type="text"
                 style="width:72px;height:32px;padding:4px 8px;text-align:center;font-weight:700"
                 value="${_esc(crew.arr_gate||'')}" placeholder="A8"/>
-              <span id="c-arr-slash"
-                style="color:var(--text3);font-size:13px;
-                       display:${crew.arr_term ? 'inline' : 'none'}">/</span>
               <span id="c-arr-term"
-                style="font-family:var(--font-mono);font-size:13px;color:var(--text2);font-weight:700;
-                       display:${crew.arr_term ? 'inline' : 'none'}">${_esc(crew.arr_term||'')}</span>
-              <span class="brief-lbl" style="margin:0">Gate</span>
+                style="font-family:var(--font-mono);font-size:12px;color:var(--text3);font-weight:700;
+                       background:rgba(148,163,184,.12);border-radius:4px;padding:1px 5px;
+                       display:${crew.arr_term ? 'inline' : 'none'}">T${_esc(crew.arr_term||'')}</span>
             </div>
           </div>
         </div>
