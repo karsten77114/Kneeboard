@@ -44,8 +44,14 @@ async function _fetch() {
     const res = await fetch(`${WORKER_BASE}/api/notices`);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const raw = await res.json();
-    // 依上傳時間（created_at）由新到舊排序
-    _notices = raw.sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''));
+    // 依公告日期（issue_date）由新到舊，無日期的排後面再用 created_at 補
+    _notices = raw.sort((a, b) => {
+      const da = a.issue_date || '', db = b.issue_date || '';
+      if (da && db) return db.localeCompare(da);
+      if (da)       return -1;
+      if (db)       return 1;
+      return (b.created_at || '').localeCompare(a.created_at || '');
+    });
     _renderList();
     _updateBadge();
   } catch (e) {
