@@ -29,8 +29,8 @@ function _ensureElbLoaded() {
   const reg = _normalizeReg(d.aircraft?.registration || d.ofp?.reg || '');
   if (!reg) return;
   const elb = store.elbData;
-  // Skip if already loaded successfully for this reg
-  if (elb && !elb.error && !elb.loading && elb.reg === reg) return;
+  // Skip if already loaded (or loading) for this reg
+  if (elb && elb.reg === reg && (elb.loading || !elb.error)) return;
   preloadElbForFlight(reg);
 }
 

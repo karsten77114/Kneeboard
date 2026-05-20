@@ -1,6 +1,6 @@
 import store from '../store.js';
 import storage from '../services/storage.js';
-import { lidoLogin, elbLogin } from '../services/api.js';
+import { lidoLogin, elbLogin, verifySessions } from '../services/api.js';
 import { showToast } from '../utils.js';
 import { mountNoticeBoard } from './notice-board.js';
 
@@ -30,10 +30,7 @@ export function mount(container) {
   container.innerHTML = `
     <div class="view-content">
 
-      <!-- Notice Board (mounted by notice-board.js) -->
-      <div id="notice-board-mount"></div>
-
-      <!-- Connection Center -->
+      <!-- Connection Center (頂部，永遠可見) -->
       <div class="section-title">連線中心 Connection Hub</div>
       <div class="card" id="conn-center">
         <div class="conn-row" id="conn-lido">
@@ -67,6 +64,9 @@ export function mount(container) {
         </div>
         <div class="card" style="margin-top:10px" id="pireps-list"></div>
       </div>
+
+      <!-- Notice Board -->
+      <div id="notice-board-mount"></div>
 
     </div>
 
@@ -121,6 +121,9 @@ export function mount(container) {
   _initAuth();
   _renderAuthStatus();
   _renderPireps();
+
+  // Verify stored sessions in background; updates dot if token expired
+  verifySessions();
 
   // Re-render when flight or auth changes
   const unsub = store.subscribe(() => {

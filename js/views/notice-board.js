@@ -45,8 +45,9 @@ async function _fetch() {
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const raw = await res.json();
     // 依公告日期（issue_date）由新到舊，無日期的排後面再用 created_at 補
+    const normDate = d => (d || '').replace(/\//g, '-');
     _notices = raw.sort((a, b) => {
-      const da = a.issue_date || '', db = b.issue_date || '';
+      const da = normDate(a.issue_date), db = normDate(b.issue_date);
       if (da && db) return db.localeCompare(da);
       if (da)       return -1;
       if (db)       return 1;
@@ -171,6 +172,7 @@ export function mountNoticeBoard(container) {
       <div class="nb-header">
         <span class="section-title" style="margin-bottom:0">📢 公告欄</span>
         <span id="nb-badge" class="nb-badge" style="display:none"></span>
+        <button class="btn btn-ghost btn-sm" id="nb-read-all-btn" title="全部已讀">全讀</button>
         <button class="btn btn-ghost btn-sm" id="nb-refresh-btn" title="重新整理">↺</button>
       </div>
 
@@ -196,6 +198,14 @@ export function mountNoticeBoard(container) {
     _searchQuery = searchEl.value.trim().toLowerCase();
     _renderList();
   });
+
+  // All Read
+  container.querySelector('#nb-read-all-btn').onclick = () => {
+    _notices.forEach(n => _read.add(n.id));
+    _saveRead();
+    _renderList();
+    _updateBadge();
+  };
 
   // Refresh
   container.querySelector('#nb-refresh-btn').onclick = _fetch;
