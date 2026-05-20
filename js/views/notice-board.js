@@ -108,9 +108,6 @@ function _noticeHtml(n) {
       ${n.action_required
         ? `<div class="nb-action">⚡ 需要動作：${n.action_required}</div>`
         : ''}
-      <div class="nb-meta-row">
-        <span class="nb-ts">${(n.created_at || '').replace('T', ' ').slice(0, 16)} UTC</span>
-      </div>
     </div>` : '';
 
   return `
@@ -351,10 +348,6 @@ function _applyStyles() {
       border-radius: 7px; padding: 8px 10px;
       font-size: 12px; color: #ffb703;
       margin-top: 8px;
-    }
-    .nb-meta-row {
-      display: flex; justify-content: space-between;
-      margin-top: 10px; font-size: 11px; color: var(--text3, #475569);
     }
   `;
   document.head.appendChild(s);
