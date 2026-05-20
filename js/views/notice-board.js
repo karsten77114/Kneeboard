@@ -92,7 +92,7 @@ function _noticeHtml(n) {
   const cat      = CAT_META[n.category] || { label: n.category || '?', color: '#94a3b8' };
   const isNew    = !_read.has(n.id);
   const isExp    = _expanded.has(n.id);
-  const date     = n.issue_date || n.effective_date || (n.created_at || '').slice(0, 10).replace(/-/g, '/');
+  const date     = n.issue_date || '–';
   const aircraft = (Array.isArray(n.aircraft) ? n.aircraft : ['all'])
     .map(a => `<span class="nb-ac nb-ac-${a.toLowerCase()}">${a.toUpperCase()}</span>`).join('');
 

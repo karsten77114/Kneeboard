@@ -59,8 +59,8 @@ async function _noticesSet(env, list) {
 const _NOTICE_PROMPT = `你是星宇航空(STARLUX Airlines)飛行員助理。請分析以下公告，以純 JSON 回應（不加任何 markdown 或說明文字）：
 {
   "title": "一句話標題（30字內）",
-  "issue_date": "公告發佈日期 YYYY/MM/DD（找 Issue Date / Date of Issue / 發佈日期），找不到填 null",
-  "effective_date": "生效日 YYYY/MM/DD（找 Effective Date / 生效日），找不到填 null",
+  "issue_date": "公告的發佈/發出日期 YYYY/MM/DD。優先順序：①FN文件上的 'Issue Date' 欄位 ②表格截圖中該筆公告所在列的第一欄日期 ③Teams/Outlook 郵件/訊息的發送日期。不是生效日(Effective Date)。找不到才填 null",
+  "effective_date": "生效日 YYYY/MM/DD（Effective Date），找不到填 null",
   "source": "來源，如 FN-26-0053、Teams、Outlook、FCTM 修訂等",
   "category": "fleet_notice 或 ops 或 safety 或 manual_update 或 admin 或 app_notice（分類規則：FN-XX-XXXX 編號的一般機隊公告 → fleet_notice；涉及手冊/程序修訂 → manual_update；安全警示 → safety；飛行計畫/地面作業/特定航班通告 → ops；人事/行政/薪資 → admin；App 版本 → app_notice）",
   "aircraft": ["A321","A330","A350","all"] 中適用的機型陣列，全機隊填 ["all"],
