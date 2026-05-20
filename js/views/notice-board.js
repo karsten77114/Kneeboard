@@ -4,8 +4,15 @@
 
 const WORKER_BASE = 'https://jx-briefing.karsten77114.workers.dev';
 
-const CAT_META = {
-  fleet_notice:  { label: '📋 FN',    color: '#60a5fa' },
+// 來源（第一排 chip）
+const SOURCE_META = {
+  fleet_notice: { label: '📋 FN',    color: '#60a5fa' },
+  message:      { label: '💬 訊息',  color: '#a78bfa' },
+  email:        { label: '📧 Email', color: '#34d399' },
+};
+
+// 內容標籤（第二排 chip）
+const TAG_META = {
   ops:           { label: '✈️ Ops',   color: '#22d3ee' },
   safety:        { label: '🔴 Safety',color: '#ff4757' },
   manual_update: { label: '📖 手冊',  color: '#c49a3c' },
@@ -21,11 +28,12 @@ const AIRCRAFT_COLOR = {
 };
 
 // ── State ─────────────────────────────────────────────────────────
-let _notices     = [];
-let _activeCat   = 'all';
-let _searchQuery = '';
-let _expanded    = new Set();
-let _read        = new Set();
+let _notices      = [];
+let _activeSource = 'all';
+let _activeTag    = 'all';
+let _searchQuery  = '';
+let _expanded     = new Set();
+let _read         = new Set();
 
 function _loadRead() {
   try { _read = new Set(JSON.parse(localStorage.getItem('kb_read_notices') || '[]')); }
@@ -33,6 +41,23 @@ function _loadRead() {
 }
 function _saveRead() {
   localStorage.setItem('kb_read_notices', JSON.stringify([..._read]));
+}
+
+// ── Backward-compat helpers ───────────────────────────────────────
+function _getSourceTag(n) {
+  if (n.source_tag) return n.source_tag;
+  const src = (n.source || '').toLowerCase();
+  if (src.includes('teams') || src.includes('line')) return 'message';
+  if (src.includes('outlook') || src.includes('email') || src.includes('aviobook')) return 'email';
+  return 'fleet_notice';
+}
+
+function _getTags(n) {
+  if (n.tags?.length) return n.tags;
+  const cat = n.category || '';
+  if (cat === 'fleet_notice') return ['ops'];
+  if (cat) return [cat];
+  return ['ops'];
 }
 
 // ── Fetch ─────────────────────────────────────────────────────────
@@ -44,7 +69,6 @@ async function _fetch() {
     const res = await fetch(`${WORKER_BASE}/api/notices`);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const raw = await res.json();
-    // 依公告日期（issue_date）由新到舊，無日期的排後面再用 created_at 補
     const normDate = d => (d || '').replace(/\//g, '-');
     _notices = raw.sort((a, b) => {
       const da = normDate(a.issue_date), db = normDate(b.issue_date);
@@ -63,7 +87,8 @@ async function _fetch() {
 // ── Render ────────────────────────────────────────────────────────
 function _filtered() {
   return _notices.filter(n => {
-    if (_activeCat !== 'all' && n.category !== _activeCat) return false;
+    if (_activeSource !== 'all' && _getSourceTag(n) !== _activeSource) return false;
+    if (_activeTag    !== 'all' && !_getTags(n).includes(_activeTag))  return false;
     if (_searchQuery) {
       const hay = `${n.title} ${n.source} ${(n.summary || []).join(' ')}`.toLowerCase();
       if (!hay.includes(_searchQuery)) return false;
@@ -96,16 +121,24 @@ function _renderList() {
 }
 
 function _noticeHtml(n) {
-  const cat      = CAT_META[n.category] || { label: n.category || '?', color: '#94a3b8' };
-  const isNew    = !_read.has(n.id);
-  const isExp    = _expanded.has(n.id);
-  const date     = n.issue_date || '–';
+  const srcTag  = _getSourceTag(n);
+  const tags    = _getTags(n);
+  const src     = SOURCE_META[srcTag] || { label: srcTag, color: '#94a3b8' };
+  const tag     = TAG_META[tags[0]]   || null;
+
+  const isNew   = !_read.has(n.id);
+  const isExp   = _expanded.has(n.id);
+  const date    = n.issue_date || '–';
   const aircraft = (Array.isArray(n.aircraft) ? n.aircraft : ['all'])
     .map(a => `<span class="nb-ac nb-ac-${a.toLowerCase()}">${a.toUpperCase()}</span>`).join('');
 
   const urgCls = n.urgency === 'urgent'    ? 'nb-urgent'
                : n.urgency === 'important' ? 'nb-important'
                : '';
+
+  const tagBadge = tag
+    ? `<span class="nb-tag-badge" style="background:${tag.color}20;color:${tag.color};border-color:${tag.color}40">${tag.label}</span>`
+    : '';
 
   const body = isExp ? `
     <div class="nb-body">
@@ -121,7 +154,8 @@ function _noticeHtml(n) {
     <div class="nb-item ${urgCls} ${isExp ? 'nb-open' : ''}" data-id="${n.id}">
       <div class="nb-item-hdr">
         <div class="nb-hdr-top">
-          <span class="nb-cat-badge" style="background:${cat.color}20;color:${cat.color};border-color:${cat.color}40">${cat.label}</span>
+          <span class="nb-src-badge" style="background:${src.color}20;color:${src.color};border-color:${src.color}40">${src.label}</span>
+          ${tagBadge}
           ${isNew ? '<span class="nb-new-dot">NEW</span>' : ''}
           <span class="nb-date">${date}</span>
           ${n.source ? `<span class="nb-source">${n.source}</span>` : ''}
@@ -144,23 +178,46 @@ function _updateBadge() {
   badge.style.display = unread ? 'inline-flex' : 'none';
 }
 
-function _renderCatBtns() {
-  const wrap = document.getElementById('nb-cats');
-  if (!wrap) return;
-  const cats = [
-    { id: 'all', label: '全部' },
-    ...Object.entries(CAT_META).map(([id, m]) => ({ id, label: m.label })),
-  ];
-  wrap.innerHTML = cats.map(c =>
-    `<button class="nb-cat-btn ${c.id === _activeCat ? 'active' : ''}" data-cat="${c.id}">${c.label}</button>`
-  ).join('');
-  wrap.querySelectorAll('.nb-cat-btn').forEach(btn => {
-    btn.onclick = () => {
-      _activeCat = btn.dataset.cat;
-      wrap.querySelectorAll('.nb-cat-btn').forEach(b => b.classList.toggle('active', b.dataset.cat === _activeCat));
-      _renderList();
-    };
-  });
+function _renderFilterBtns() {
+  // 第一排：來源
+  const srcWrap = document.getElementById('nb-sources');
+  if (srcWrap) {
+    const srcList = [
+      { id: 'all', label: '全部' },
+      ...Object.entries(SOURCE_META).map(([id, m]) => ({ id, label: m.label })),
+    ];
+    srcWrap.innerHTML = srcList.map(c =>
+      `<button class="nb-filter-btn ${c.id === _activeSource ? 'active' : ''}" data-src="${c.id}">${c.label}</button>`
+    ).join('');
+    srcWrap.querySelectorAll('.nb-filter-btn').forEach(btn => {
+      btn.onclick = () => {
+        _activeSource = btn.dataset.src;
+        srcWrap.querySelectorAll('.nb-filter-btn').forEach(b =>
+          b.classList.toggle('active', b.dataset.src === _activeSource));
+        _renderList();
+      };
+    });
+  }
+
+  // 第二排：內容標籤
+  const tagWrap = document.getElementById('nb-tags');
+  if (tagWrap) {
+    const tagList = [
+      { id: 'all', label: '全部' },
+      ...Object.entries(TAG_META).map(([id, m]) => ({ id, label: m.label })),
+    ];
+    tagWrap.innerHTML = tagList.map(c =>
+      `<button class="nb-filter-btn nb-tag-btn ${c.id === _activeTag ? 'active' : ''}" data-tag="${c.id}">${c.label}</button>`
+    ).join('');
+    tagWrap.querySelectorAll('.nb-filter-btn[data-tag]').forEach(btn => {
+      btn.onclick = () => {
+        _activeTag = btn.dataset.tag;
+        tagWrap.querySelectorAll('.nb-filter-btn').forEach(b =>
+          b.classList.toggle('active', b.dataset.tag === _activeTag));
+        _renderList();
+      };
+    });
+  }
 }
 
 // ── Public API ────────────────────────────────────────────────────
@@ -181,25 +238,26 @@ export function mountNoticeBoard(container) {
         <input id="nb-search" class="input nb-search-input" type="search" placeholder="搜尋公告…">
       </div>
 
-      <!-- Category filter -->
-      <div id="nb-cats" class="nb-cats"></div>
+      <!-- Source filter (row 1) -->
+      <div id="nb-sources" class="nb-filter-row"></div>
+
+      <!-- Tag filter (row 2) -->
+      <div id="nb-tags" class="nb-filter-row nb-tags-row"></div>
 
       <!-- List -->
       <div id="nb-list" class="nb-list"></div>
     </div>`;
 
   _applyStyles();
-  _renderCatBtns();
+  _renderFilterBtns();
   _fetch();
 
-  // Search
   const searchEl = container.querySelector('#nb-search');
   searchEl.addEventListener('input', () => {
     _searchQuery = searchEl.value.trim().toLowerCase();
     _renderList();
   });
 
-  // All Read
   container.querySelector('#nb-read-all-btn').onclick = () => {
     _notices.forEach(n => _read.add(n.id));
     _saveRead();
@@ -207,7 +265,6 @@ export function mountNoticeBoard(container) {
     _updateBadge();
   };
 
-  // Refresh
   container.querySelector('#nb-refresh-btn').onclick = _fetch;
 }
 
@@ -221,7 +278,6 @@ function _applyStyles() {
   const s = document.createElement('style');
   s.id = 'nb-style';
   s.textContent = `
-    /* Wrapper */
     .nb-wrap { margin-bottom: 4px; }
 
     .nb-header {
@@ -237,7 +293,6 @@ function _applyStyles() {
     }
     #nb-refresh-btn { margin-left: auto; font-size: 16px; }
 
-    /* Search */
     .nb-search-row { margin-bottom: 8px; }
     .nb-search-input {
       width: 100%; box-sizing: border-box;
@@ -249,25 +304,27 @@ function _applyStyles() {
     }
     .nb-search-input:focus { outline: none; border-color: var(--accent, #c49a3c); }
 
-    /* Category chips */
-    .nb-cats {
+    /* Filter rows */
+    .nb-filter-row {
       display: flex; gap: 6px; overflow-x: auto;
-      padding-bottom: 4px; margin-bottom: 10px;
+      padding-bottom: 4px; margin-bottom: 6px;
       scrollbar-width: none;
     }
-    .nb-cats::-webkit-scrollbar { display: none; }
-    .nb-cat-btn {
+    .nb-filter-row::-webkit-scrollbar { display: none; }
+    .nb-tags-row { margin-bottom: 10px; }
+    .nb-filter-btn {
       flex-shrink: 0;
       background: var(--surface, #0f1824); color: var(--text2, #94a3b8);
       border: 1px solid var(--border, #1e3050);
-      border-radius: 20px; padding: 5px 12px;
+      border-radius: 20px; padding: 4px 11px;
       font-size: 12px; cursor: pointer; white-space: nowrap;
       transition: background 0.15s, color 0.15s;
     }
-    .nb-cat-btn.active {
+    .nb-filter-btn.active {
       background: rgba(196,154,60,0.15); color: #c49a3c;
       border-color: rgba(196,154,60,0.4);
     }
+    .nb-tag-btn { font-size: 11px; padding: 3px 10px; }
 
     /* Notice items */
     .nb-list {
@@ -304,7 +361,7 @@ function _applyStyles() {
       display: flex; align-items: center; gap: 6px;
       flex-wrap: wrap; margin-bottom: 5px;
     }
-    .nb-cat-badge {
+    .nb-src-badge, .nb-tag-badge {
       font-size: 11px; font-weight: 700; padding: 2px 7px;
       border-radius: 5px; border: 1px solid; white-space: nowrap;
     }
@@ -347,7 +404,6 @@ function _applyStyles() {
       flex-shrink: 0;
     }
 
-    /* Expanded body */
     .nb-body {
       padding: 0 12px 12px;
       border-top: 1px solid var(--border, #1e3050);
