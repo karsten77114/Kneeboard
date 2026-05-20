@@ -14,7 +14,7 @@
 }
 
 .topbar-logo {
-  font-size: 15px; font-weight: 900;
+  font-size: 16px; font-weight: 900;
   color: var(--gold);
   letter-spacing: -0.3px; white-space: nowrap;
   text-shadow: 0 0 12px var(--gold-glow);
@@ -33,19 +33,19 @@
   white-space: nowrap; overflow: hidden; max-width: 100%;
 }
 .topbar-flt-num {
-  font-size: 14px; font-weight: 900; color: var(--gold);
+  font-size: 15px; font-weight: 900; color: var(--gold);
   letter-spacing: -0.3px; flex-shrink: 0;
 }
 .topbar-route {
   display: flex; align-items: center; gap: 4px;
-  font-size: 14px; font-weight: 700; color: var(--text);
+  font-size: 15px; font-weight: 700; color: var(--text);
 }
-.topbar-arrow { color: var(--text3); font-size: 11px; }
+.topbar-arrow { color: var(--text3); font-size: 12px; }
 
 /* Row 2: reg + times (secondary, smaller) */
 .topbar-meta {
   display: flex; align-items: center; gap: 6px;
-  font-size: 10px; color: var(--text3);
+  font-size: 11px; color: var(--text3);
   white-space: nowrap; overflow: hidden; max-width: 100%;
 }
 .topbar-reg {
@@ -57,7 +57,7 @@
 }
 
 .topbar-empty {
-  color: var(--text3); font-size: 13px;
+  color: var(--text3); font-size: 14px;
   text-align: center;
 }
 
@@ -65,13 +65,13 @@
 .topbar-utc {
   text-align: right;
   font-family: 'JetBrains Mono', 'SF Mono', 'Courier New', monospace;
-  font-size: 13px; font-weight: 700;
+  font-size: 14px; font-weight: 700;
   color: var(--text2); white-space: nowrap;
   letter-spacing: 0.5px;
 }
 .topbar-utc-label {
-  font-size: 10px; font-weight: 600;
-  color: var(--text3); letter-spacing: 0.8px;
+  font-size: 11px; font-weight: 600;
+  color: var(--text3); letter-spacing: 0.7px;
   display: block; text-align: right;
 }
 
@@ -111,7 +111,7 @@
 .sb-input {
   flex: 1; max-width: 120px;
   height: 30px; padding: 0 10px;
-  font-size: 14px; font-weight: 700; font-family: 'JetBrains Mono','SF Mono',monospace;
+  font-size: 15px; font-weight: 700; font-family: 'JetBrains Mono','SF Mono',monospace;
   background: rgba(0,0,0,.35); border: 1px solid rgba(196,154,60,.25);
   border-radius: 6px; color: var(--text); outline: none;
   text-transform: uppercase; letter-spacing: .5px;
@@ -124,13 +124,13 @@
 .sb-nav-btn {
   height: 30px; padding: 0 8px;
   background: rgba(0,0,0,.3); border: 1px solid rgba(196,154,60,.2);
-  border-radius: 6px; color: var(--text2); font-size: 12px;
+  border-radius: 6px; color: var(--text2); font-size: 13px;
   cursor: pointer; flex-shrink: 0; line-height: 1;
 }
 .sb-nav-btn:active { opacity: .6; }
 .sb-date-input {
   height: 30px; padding: 0 6px;
-  font-size: 12px; font-family: 'JetBrains Mono','SF Mono',monospace;
+  font-size: 13px; font-family: 'JetBrains Mono','SF Mono',monospace;
   background: rgba(0,0,0,.35); border: 1px solid rgba(196,154,60,.25);
   border-radius: 6px; color: var(--text); outline: none;
   flex-shrink: 1; min-width: 0; width: 130px;
@@ -170,9 +170,9 @@
   flex: 1; display: flex; flex-direction: column;
   align-items: center; justify-content: center; gap: 3px;
   border: none; background: transparent;
-  color: var(--text3); font-size: 10px; font-weight: 600;
+  color: var(--text3); font-size: 11px; font-weight: 600;
   cursor: pointer; transition: color 0.15s; padding: 6px 4px;
-  letter-spacing: 0.3px;
+  letter-spacing: 0.2px; font-family: inherit;
 }
 .tab-btn svg, .tab-btn .tab-icon { font-size: 20px; line-height: 1; }
 .tab-btn.active {
@@ -198,9 +198,9 @@
 .sub-tab-btn {
   flex-shrink: 0; padding: 10px 14px;
   border: none; background: transparent;
-  color: var(--text3); font-size: 13px; font-weight: 600;
+  color: var(--text3); font-size: 14px; font-weight: 600;
   cursor: pointer; border-bottom: 2px solid transparent;
-  transition: all 0.15s; white-space: nowrap;
+  transition: all 0.15s; white-space: nowrap; font-family: inherit;
 }
 .sub-tab-btn.active {
   color: var(--gold);
@@ -209,8 +209,8 @@
 
 /* ── Section header ───────────────────────────────────────────── */
 .section-title {
-  font-size: 13px; font-weight: 700; color: var(--text2);
-  text-transform: uppercase; letter-spacing: 0.6px;
+  font-size: 14px; font-weight: 700; color: var(--text2);
+  text-transform: uppercase; letter-spacing: 0.5px;
   margin: 20px 0 10px;
 }
 .section-title:first-child { margin-top: 0; }
@@ -231,8 +231,8 @@
     display: flex; align-items: center; gap: 10px;
     padding: 10px 12px; border-radius: var(--radius-sm);
     border: none; background: transparent;
-    color: var(--text2); font-size: 14px; font-weight: 600;
-    cursor: pointer; text-align: left; transition: all 0.15s;
+    color: var(--text2); font-size: 15px; font-weight: 600;
+    cursor: pointer; text-align: left; transition: all 0.15s; font-family: inherit;
   }
   .sidebar-btn.active {
     background: rgba(196,154,60,0.10);

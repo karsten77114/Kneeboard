@@ -221,9 +221,9 @@ function _arcCard(dep, dest, fltNo, t, cruiseFL, block, remaining, reg, date, cr
         <div class="arc-apt arc-apt-r">${toICAO(dest)}</div>
       </div>
 
-      <!-- SVG arc — max-width constrained so wide screens don't look empty -->
+      <!-- SVG arc + ETE overlaid inside arc bowl -->
       <div style="position:relative;max-width:420px;margin:0 auto">
-        <svg viewBox="0 0 300 68" width="100%"
+        <svg viewBox="0 0 300 72" width="100%"
              style="display:block;overflow:visible">
           <defs>
             <linearGradient id="arcGrad" x1="0" y1="0" x2="1" y2="0">
@@ -232,31 +232,37 @@ function _arcCard(dep, dest, fltNo, t, cruiseFL, block, remaining, reg, date, cr
               <stop offset="100%" stop-color="#c49a3c" stop-opacity="0.45"/>
             </linearGradient>
           </defs>
-          <path d="M 18,63 C 85,5 215,5 282,63"
+          <path d="M 18,67 C 85,5 215,5 282,67"
             stroke="url(#arcGrad)" stroke-width="2.5" fill="none"
             stroke-linecap="round"/>
-          <circle cx="18"  cy="63" r="4" fill="#c49a3c" opacity="0.9"/>
-          <circle cx="282" cy="63" r="4" fill="#c49a3c" opacity="0.45"/>
+          <circle cx="18"  cy="67" r="4" fill="#c49a3c" opacity="0.9"/>
+          <circle cx="282" cy="67" r="4" fill="#c49a3c" opacity="0.45"/>
         </svg>
-        <div style="position:absolute;top:0;left:50%;transform:translateX(-50%)">
+
+        <!-- FL chip at arc peak -->
+        <div style="position:absolute;top:2px;left:50%;transform:translateX(-50%);z-index:2">
           <span class="arc-fl-chip">${flChip}</span>
+        </div>
+
+        <!-- ETE + sub info overlaid in arc bowl -->
+        <div style="position:absolute;top:54%;left:50%;transform:translate(-50%,-50%);
+                    text-align:center;z-index:1;width:100%">
+          <div class="arc-ete">${ete}</div>
+          <div class="arc-sub" style="margin-top:2px">Block ${blockStr} · Rem ${remStr}</div>
+          ${reg !== '—' ? `<div class="arc-sub" style="color:var(--blue);display:flex;align-items:center;
+              justify-content:center;gap:6px;flex-wrap:wrap;margin-top:3px">
+            <span>${reg}${date ? ' · ' + _dateLabel(date) : ''}</span>
+            ${_elbStatusChip()}
+          </div>` : ''}
         </div>
       </div>
 
-      <!-- Footer: STD | ETE/Block | STA -->
-      <div class="arc-footer">
+      <!-- Footer: STD and STA only -->
+      <div class="arc-footer" style="margin-top:2px">
         <div class="arc-tblock">
           <div class="arc-tlbl">STD</div>
           <div class="arc-tutc">${std}</div>
           ${stdL ? `<div class="arc-tloc">${stdL}</div>` : ''}
-        </div>
-        <div class="arc-center">
-          <div class="arc-ete">${ete}</div>
-          <div class="arc-sub">Block ${blockStr} · Rem ${remStr}</div>
-          ${reg !== '—' ? `<div class="arc-sub" style="color:var(--blue);display:flex;align-items:center;justify-content:center;gap:6px;flex-wrap:wrap">
-            <span>${reg}${date ? ' · ' + _dateLabel(date) : ''}</span>
-            ${_elbStatusChip()}
-          </div>` : ''}
         </div>
         <div class="arc-tblock arc-tblock-r">
           <div class="arc-tlbl">STA</div>
@@ -735,40 +741,40 @@ function _applyStyles() {
 
     /* ── Arc ── */
     .arc-hdr    { display:flex; justify-content:space-between; align-items:center; margin-bottom:2px; }
-    .arc-apt    { font-size:24px; font-weight:800; letter-spacing:-.5px; }
+    .arc-apt    { font-size:26px; font-weight:800; letter-spacing:-.5px; }
     .arc-apt-r  { text-align:right; }
-    .arc-badge  { font-size:13px; font-weight:700; color:var(--gold);
+    .arc-badge  { font-size:14px; font-weight:700; color:var(--gold);
                   background:rgba(196,154,60,.10); border:1px solid rgba(196,154,60,.25);
                   padding:3px 14px; border-radius:20px; }
     .arc-fl-chip { font-family:'JetBrains Mono','SF Mono',monospace;
-                   font-size:12px; font-weight:700; color:var(--gold);
+                   font-size:13px; font-weight:700; color:var(--gold);
                    background:rgba(196,154,60,.12); border:1px solid rgba(196,154,60,.28);
                    border-radius:20px; padding:2px 12px; white-space:nowrap; }
     .arc-footer { display:flex; justify-content:space-between; align-items:flex-start; margin-top:6px; }
     .arc-tblock  { min-width:72px; }
     .arc-tblock-r { text-align:right; }
-    .arc-tlbl   { font-size:10px; color:var(--text3); text-transform:uppercase; letter-spacing:.05em; }
+    .arc-tlbl   { font-size:11px; color:var(--text3); text-transform:uppercase; letter-spacing:.05em; }
     .arc-tutc   { font-family:'JetBrains Mono','SF Mono',monospace;
-                  font-size:19px; font-weight:800; line-height:1.15; }
-    .arc-tloc   { font-size:11px; color:var(--text3); }
+                  font-size:21px; font-weight:800; line-height:1.15; }
+    .arc-tloc   { font-size:12px; color:var(--text3); }
     .arc-center { text-align:center; flex:1; }
     .arc-ete    { font-family:'JetBrains Mono','SF Mono',monospace;
-                  font-size:26px; font-weight:800; line-height:1.1; }
-    .arc-sub    { font-size:11px; color:var(--text3); margin-top:1px; }
+                  font-size:30px; font-weight:800; line-height:1.1; }
+    .arc-sub    { font-size:12px; color:var(--text3); margin-top:1px; }
 
     /* ── Flight data stats strip ── */
     .arc-stats     { display:grid; grid-template-columns:repeat(auto-fit,minmax(80px,1fr));
                      gap:0; border-top:1px solid var(--border); margin-top:10px; padding-top:10px; }
     .arc-stat      { text-align:center; padding:4px 6px; }
-    .arc-stat-lbl  { font-size:10px; color:var(--text3); text-transform:uppercase;
+    .arc-stat-lbl  { font-size:11px; color:var(--text3); text-transform:uppercase;
                      letter-spacing:.05em; margin-bottom:2px; }
     .arc-stat-val  { font-family:'JetBrains Mono','SF Mono',monospace;
-                     font-size:13px; font-weight:700; color:var(--text); }
+                     font-size:14px; font-weight:700; color:var(--text); }
     .arc-stat-neg  { color:var(--red) !important; }
     .arc-stat-pos  { color:var(--green) !important; }
 
     /* ── Weather inline ── */
-    .wx-hdr     { font-size:11px; font-weight:700; color:var(--gold);
+    .wx-hdr     { font-size:12px; font-weight:700; color:var(--gold);
                   text-transform:uppercase; letter-spacing:.05em; margin-bottom:4px; }
     .wx-body-sm { min-height:16px; }
     .wx-spin-sm { display:inline-block; width:12px; height:12px;
@@ -776,12 +782,12 @@ function _applyStyles() {
                   border-radius:50%; animation:spin .8s linear infinite; }
 
     /* ── Crew form ── */
-    .brief-lbl  { font-size:11px; color:var(--text3); text-transform:uppercase;
+    .brief-lbl  { font-size:12px; color:var(--text3); text-transform:uppercase;
                   letter-spacing:.04em; margin-bottom:4px; }
     .btn-copy-sm { background:rgba(196,154,60,.12); border:1px solid rgba(196,154,60,.25);
                    color:var(--gold); border-radius:8px; cursor:pointer;
-                   font-size:13px; font-weight:700; padding:6px 14px;
-                   white-space:nowrap; flex-shrink:0; }
+                   font-size:14px; font-weight:700; padding:6px 14px;
+                   white-space:nowrap; flex-shrink:0; font-family:inherit; }
     .btn-copy-sm:active { opacity:.7; }
   `;
   document.head.appendChild(s);

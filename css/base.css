@@ -47,8 +47,8 @@ html, body { height: 100%; }
 body {
   background: var(--bg);
   color: var(--text);
-  font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', sans-serif;
-  font-size: 14px;
+  font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', sans-serif;
+  font-size: 15px;
   -webkit-text-size-adjust: 100%;
   /* Ambient background glow (design §5.2) */
   background-image:
@@ -60,7 +60,7 @@ body {
 
 /* ── Typography ───────────────────────────────────────────────── */
 .label {
-  font-size: 11px; font-weight: 700; letter-spacing: 0.8px;
+  font-size: 12px; font-weight: 700; letter-spacing: 0.7px;
   color: var(--text3); text-transform: uppercase;
 }
 .mono {
@@ -76,7 +76,7 @@ body {
   box-shadow: 0 4px 24px rgba(196,154,60,0.06);
 }
 .card-title {
-  font-size: 11px; font-weight: 700; letter-spacing: 0.8px;
+  font-size: 12px; font-weight: 700; letter-spacing: 0.7px;
   color: var(--text3); text-transform: uppercase; margin-bottom: 12px;
 }
 
@@ -84,8 +84,9 @@ body {
 .btn {
   display: inline-flex; align-items: center; justify-content: center; gap: 6px;
   padding: 8px 18px; border-radius: var(--radius-sm); border: none;
-  cursor: pointer; font-weight: 600; font-size: 14px;
+  cursor: pointer; font-weight: 600; font-size: 15px;
   transition: opacity 0.15s, box-shadow 0.2s; white-space: nowrap;
+  font-family: inherit;
 }
 .btn:active  { opacity: 0.75; }
 .btn:disabled { opacity: 0.35; cursor: not-allowed; }
@@ -108,7 +109,7 @@ body {
 
 .btn-blue   { background: var(--blue);   color: #0c1118; }
 .btn-danger { background: var(--red);    color: #fff; }
-.btn-sm     { padding: 5px 12px; font-size: 13px; }
+.btn-sm     { padding: 5px 12px; font-size: 14px; }
 .btn-full   { width: 100%; }
 
 /* ── Form inputs ──────────────────────────────────────────────── */
@@ -117,7 +118,7 @@ body {
   background: rgba(0,0,0,0.28);
   border: 1px solid rgba(196,154,60,0.20);
   color: var(--text); padding: 9px 12px; border-radius: var(--radius-sm);
-  font-size: 14px; outline: none; transition: border-color 0.2s, box-shadow 0.2s;
+  font-size: 15px; font-family: inherit; outline: none; transition: border-color 0.2s, box-shadow 0.2s;
 }
 .input:focus {
   border-color: var(--gold);
@@ -150,8 +151,8 @@ body {
   min-height: 40vh; text-align: center; gap: 14px; padding: 32px;
 }
 .state-icon  { font-size: 48px; }
-.state-title { font-size: 18px; font-weight: 700; color: var(--text); }
-.state-sub   { color: var(--text2); max-width: 320px; line-height: 1.6; font-size: 13px; }
+.state-title { font-size: 19px; font-weight: 700; color: var(--text); }
+.state-sub   { color: var(--text2); max-width: 320px; line-height: 1.6; font-size: 14px; }
 
 /* ── Spinner ──────────────────────────────────────────────────── */
 .spinner {
@@ -179,20 +180,20 @@ body {
   box-shadow: 0 8px 40px rgba(0,0,0,0.6), 0 0 0 1px rgba(196,154,60,0.08);
   backdrop-filter: blur(20px);
 }
-.modal-title { font-size: 17px; font-weight: 800; margin-bottom: 6px; color: var(--text); }
-.modal-sub   { color: var(--text2); font-size: 13px; line-height: 1.6; margin-bottom: 20px; }
+.modal-title { font-size: 18px; font-weight: 800; margin-bottom: 6px; color: var(--text); }
+.modal-sub   { color: var(--text2); font-size: 14px; line-height: 1.6; margin-bottom: 20px; }
 .modal-btns  { display: flex; gap: 10px; margin-top: 20px; }
 .modal-btns .btn { flex: 1; padding: 10px; }
 
 /* ── Form group ───────────────────────────────────────────────── */
 .form-group { margin-bottom: 14px; }
-.form-label { display: block; font-size: 12px; color: var(--text2); margin-bottom: 6px; }
+.form-label { display: block; font-size: 13px; color: var(--text2); margin-bottom: 6px; }
 
 /* ── Error message ────────────────────────────────────────────── */
 .err-msg {
   background: rgba(255,71,87,0.10); border: 1px solid rgba(255,71,87,0.30);
   border-radius: var(--radius-sm); padding: 10px 14px;
-  font-size: 13px; color: var(--red); margin-bottom: 14px;
+  font-size: 14px; color: var(--red); margin-bottom: 14px;
 }
 .err-msg.hidden { display: none; }
 
@@ -203,7 +204,7 @@ body {
   background: linear-gradient(90deg, var(--gold-dim), var(--gold));
   color: #0c1118;
   padding: 10px 20px; border-radius: var(--radius-sm);
-  font-weight: 700; font-size: 13px; z-index: 9999;
+  font-weight: 700; font-size: 14px; z-index: 9999;
   animation: fadeUp 0.2s ease;
   white-space: nowrap;
   box-shadow: 0 0 20px rgba(196,154,60,0.4);
@@ -226,8 +227,8 @@ body {
 }
 .seg-btn {
   flex: 1; padding: 6px 12px; border-radius: 5px; border: none;
-  background: transparent; color: var(--text3); font-size: 13px; font-weight: 600;
-  cursor: pointer; white-space: nowrap; transition: all 0.15s;
+  background: transparent; color: var(--text3); font-size: 14px; font-weight: 600;
+  cursor: pointer; white-space: nowrap; transition: all 0.15s; font-family: inherit;
 }
 .seg-btn.active {
   background: var(--card);
@@ -241,22 +242,22 @@ body {
   padding: 7px 0; border-bottom: 1px solid var(--border);
 }
 .data-row:last-child { border-bottom: none; }
-.data-label { color: var(--text2); font-size: 13px; }
+.data-label { color: var(--text2); font-size: 14px; }
 .data-val   {
-  font-weight: 700; font-size: 14px;
+  font-weight: 700; font-size: 15px;
   font-family: 'JetBrains Mono', 'SF Mono', monospace;
   color: var(--text);
 }
 
 /* ── Weight bar ───────────────────────────────────────────────── */
 .w-bar-wrap { margin-bottom: 10px; }
-.w-bar-labels { display: flex; justify-content: space-between; margin-bottom: 4px; font-size: 12px; }
+.w-bar-labels { display: flex; justify-content: space-between; margin-bottom: 4px; font-size: 13px; }
 .w-bar-track  { background: var(--surface); border-radius: 4px; height: 7px; overflow: hidden; }
 .w-bar-fill   { height: 100%; border-radius: 4px; transition: width 0.5s; }
 .w-bar-fill.safe { background: var(--green); }
 .w-bar-fill.warn { background: var(--amber); }
 .w-bar-fill.over { background: var(--red); }
-.w-bar-nums   { display: flex; justify-content: space-between; margin-top: 3px; font-size: 11px; color: var(--text3); }
+.w-bar-nums   { display: flex; justify-content: space-between; margin-top: 3px; font-size: 12px; color: var(--text3); }
 
 /* ── ATC route box ────────────────────────────────────────────── */
 .route-box {
@@ -264,7 +265,7 @@ body {
   border: 1px solid var(--border);
   border-radius: var(--radius-sm); padding: 12px;
   font-family: 'JetBrains Mono', 'SF Mono', 'Courier New', monospace;
-  font-size: 12px; line-height: 1.7; color: var(--blue);
+  font-size: 13px; line-height: 1.7; color: var(--blue);
   word-break: break-all; white-space: pre-wrap;
 }
 
