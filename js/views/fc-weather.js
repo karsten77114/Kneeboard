@@ -638,6 +638,10 @@ function _renderChart(panel) {
       _activeGroup = 0;
       _activeSub   = 0;
       _chartZoom   = 1.0;
+      // Log available categories for debugging VAA/TCA mismatches
+      if (_chartsData.availableCategories?.length) {
+        console.log('[Charts] LIDO categories:', _chartsData.availableCategories.join(', '));
+      }
       _renderChartGroups(panel, token);
       _selectChartGroup(panel, token, 0);
     })

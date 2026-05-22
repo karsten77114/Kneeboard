@@ -1235,15 +1235,20 @@ async function handleRequest(request, env) {
       // FL labels are now read directly from doc.fileName/doc.flightLevel in allDocs (no UADXML needed)
 
       // Chart categories and their display groups (CREWINFO/DISP/RAIM excluded — handled elsewhere)
+      // VAA/TCA: try multiple possible LIDO category names (actual name depends on LIDO server config)
       const CHART_GROUPS = [
         { group: 'UAD MAPS',          cats: ['UAD'] },
         { group: 'SIGWX WITH ROUTE',  cats: ['SIGWXROUTE'] },
-        { group: 'OFFICIAL VAA/TCA',  cats: ['APTDXML','ASPDXML'] },
-        { group: 'SIGNIFICANT WX',    cats: ['WXSIGWX'] },
-        { group: 'VERTICAL PROFILE',  cats: ['VERTPROF'] },
+        { group: 'OFFICIAL VAA/TCA',  cats: ['VAATCA','VATCA','WXVAA','VAA','TCA','APTDXML','ASPDXML','VAAXML','TCAXML'] },
+        { group: 'SIGNIFICANT WX',    cats: ['WXSIGWX','SIGWX'] },
+        { group: 'CDA',               cats: ['CDA','CDAXML'] },
+        { group: 'DISPATCHER MAPS',   cats: ['DISP','DISPMAP','DISPATCHER'] },
+        { group: 'VERTICAL PROFILE',  cats: ['VERTPROF','VERTICALPROFILE'] },
       ];
 
-      const uadDocs = parsed.allDocs?.UAD || [];
+      // Collect all available category names for debug (returned alongside charts)
+      const availableCategories = Object.keys(parsed.allDocs || {});
+
       const result = [];
       for (const { group, cats } of CHART_GROUPS) {
         const files = [];
@@ -1281,7 +1286,22 @@ async function handleRequest(request, env) {
         if (files.length) result.push({ group, files });
       }
 
-      return new Response(JSON.stringify({ legId: parsed.legId, charts: result }), {
+      // Any category not matched by CHART_GROUPS → append as "Other" group (debug catch-all)
+      const mappedCats = new Set(CHART_GROUPS.flatMap(g => g.cats));
+      const unmappedFiles = [];
+      for (const catName of availableCategories) {
+        if (mappedCats.has(catName)) continue;
+        // Skip text-only categories
+        if (['OFP','ATS','APLI','NOTAM','CREWINFO','RAIM'].includes(catName)) continue;
+        const docs = parsed.allDocs[catName] || [];
+        for (const doc of docs) {
+          const label = (doc.label || doc.fileName || '').trim() || `${catName} ${doc.index + 1}`;
+          unmappedFiles.push({ cat: catName, fileId: doc.fileId, label: `[${catName}] ${label}`, index: doc.index });
+        }
+      }
+      if (unmappedFiles.length) result.push({ group: '⚠ Unmatched', files: unmappedFiles });
+
+      return new Response(JSON.stringify({ legId: parsed.legId, charts: result, availableCategories }), {
         headers: { ...headers, 'Content-Type': 'application/json' }
       });
     }
