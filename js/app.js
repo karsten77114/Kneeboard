@@ -85,7 +85,7 @@ function _dateStr(d) {
   const months = ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'];
   const m = parseInt(s.slice(4,6), 10) - 1;
   if (m < 0 || m > 11) return '';
-  return `${s.slice(6,8)}${months[m]}`;
+  return `${s.slice(6,8)}${months[m]}${s.slice(2,4)}`;
 }
 
 function _renderTopBar() {

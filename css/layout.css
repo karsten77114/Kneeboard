@@ -45,7 +45,7 @@
 /* Row 2: reg + times (secondary, smaller) */
 .topbar-meta {
   display: flex; align-items: center; gap: 6px;
-  font-size: 11px; color: var(--text3);
+  font-size: 11px; color: var(--text2);
   white-space: nowrap; overflow: hidden; max-width: 100%;
 }
 .topbar-reg {
@@ -53,7 +53,7 @@
 }
 .topbar-date {
   font-family: 'JetBrains Mono', 'SF Mono', monospace;
-  color: var(--text3);
+  color: var(--text2); font-weight: 700;
 }
 .topbar-times {
   font-family: 'JetBrains Mono', 'SF Mono', monospace;

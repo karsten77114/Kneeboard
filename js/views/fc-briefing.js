@@ -197,8 +197,8 @@ function _arcCard(dep, dest, fltNo, t, cruiseFL, block, remaining, reg, date, cr
   const altnFuel = o?.altnFuel != null ? fuelStr(o.altnFuel)                   : null;
   const statsItems = [
     dist    ? { label:'距離',      val: dist }                                         : null,
-    wcStr   ? { label:'Wind Comp', val: wcStr, cls: wcRaw < 0 ? 'neg' : 'pos' }        : null,
-    ciStr   ? { label:'Cost Index',val: ciStr }                                        : null,
+    wcStr   ? { label:'WIND COMP', val: wcStr, cls: wcRaw < 0 ? 'neg' : 'pos' }       : null,
+    ciStr   ? { label:'COST INDEX',val: ciStr }                                        : null,
     altnApt ? { label:'備降 ALTN', val: altnApt + (altnFuel ? ' · ' + altnFuel : '') } : null,
   ].filter(Boolean);
   const statsHtml = statsItems.length ? `
@@ -212,24 +212,101 @@ function _arcCard(dep, dest, fltNo, t, cruiseFL, block, remaining, reg, date, cr
 
   const statusChip = _elbStatusChip();
 
+  // SVG bezier path — smooth trapezoid, viewBox 0 0 500 90
+  // Ground y=78, cruise y=22 (moved down), profile start/end x=80/420
+  // Ground dashes: 0→80 (left), 420→500 (right) — spans full card width
+  // Bezier: M 80,78 C 130,78 160,22 200,22 L 300,22 C 340,22 370,78 420,78
+  const flLabel = cruiseFL ? `<text x="250" y="15" text-anchor="middle"
+    font-family="JetBrains Mono, SF Mono, monospace"
+    font-size="11" font-weight="700"
+    fill="rgba(200,210,255,0.80)" letter-spacing="0.5">FL${cruiseFL}</text>` : '';
+
   return `
     <div class="card arc-wrap" style="margin-bottom:10px">
 
-      <!-- Single 3-col: [DEP + WX + Gate] | [Profile SVG] | [ARR + WX + Gate] -->
-      <div class="arc-body-grid">
+      <!-- Flight number label — separate row above SVG, clearly distinct from FL -->
+      <div style="text-align:center;margin-bottom:2px">
+        <span class="arc-flt-label">${fltNo}</span>
+      </div>
+
+      <!-- Full-width flight profile SVG -->
+      <div style="position:relative;margin:0 -4px">
+        <svg viewBox="0 0 500 90" width="100%" style="display:block;overflow:visible">
+          <defs>
+            <linearGradient id="fpGrad" x1="0" y1="0" x2="500" y2="0" gradientUnits="userSpaceOnUse">
+              <stop offset="0%"   stop-color="#c49a3c" stop-opacity="0.45"/>
+              <stop offset="16%"  stop-color="#c49a3c" stop-opacity="0.85"/>
+              <stop offset="50%"  stop-color="#f0d080" stop-opacity="1"/>
+              <stop offset="84%"  stop-color="#c49a3c" stop-opacity="0.85"/>
+              <stop offset="100%" stop-color="#c49a3c" stop-opacity="0.45"/>
+            </linearGradient>
+            <linearGradient id="fpFill" x1="0" y1="0" x2="0" y2="90" gradientUnits="userSpaceOnUse">
+              <stop offset="0%"   stop-color="#c49a3c" stop-opacity="0.12"/>
+              <stop offset="100%" stop-color="#c49a3c" stop-opacity="0"/>
+            </linearGradient>
+            <filter id="fpGlow" x="-5%" y="-80%" width="110%" height="260%">
+              <feGaussianBlur in="SourceGraphic" stdDeviation="3.5"/>
+            </filter>
+          </defs>
+
+          <!-- Area fill: bezier smooth trapezoid -->
+          <path d="M 0,78 L 80,78 C 130,78 160,22 200,22 L 300,22 C 340,22 370,78 420,78 L 500,78 Z"
+            fill="url(#fpFill)"/>
+
+          <!-- Glow layer -->
+          <path d="M 80,78 C 130,78 160,22 200,22 L 300,22 C 340,22 370,78 420,78"
+            stroke="#f0d080" stroke-width="3.5" fill="none"
+            stroke-linecap="round" stroke-linejoin="round"
+            opacity="0.18" filter="url(#fpGlow)"/>
+
+          <!-- Ground dashes — left (extend to card edge) -->
+          <line x1="0" y1="78" x2="80" y2="78"
+            stroke="url(#fpGrad)" stroke-width="2"
+            stroke-dasharray="6 4" stroke-linecap="round" opacity="0.65"/>
+
+          <!-- Ground dashes — right (extend to card edge) -->
+          <line x1="420" y1="78" x2="500" y2="78"
+            stroke="url(#fpGrad)" stroke-width="2"
+            stroke-dasharray="6 4" stroke-linecap="round" opacity="0.65"/>
+
+          <!-- Main bezier profile: smooth curves at transition points -->
+          <path d="M 80,78 C 130,78 160,22 200,22 L 300,22 C 340,22 370,78 420,78"
+            stroke="url(#fpGrad)" stroke-width="2.5" fill="none"
+            stroke-linecap="round" stroke-linejoin="round"/>
+
+          <!-- Endpoint dots -->
+          <circle cx="80"  cy="78" r="4" fill="#c49a3c" opacity="0.9"/>
+          <circle cx="420" cy="78" r="4" fill="#c49a3c" opacity="0.55"/>
+
+          <!-- FL label: inside SVG, above cruise line (y=22), text at y=15 — no overlap -->
+          ${flLabel}
+        </svg>
+
+        <!-- ETE + Block/Remain overlay — centred in cruise zone (~55% from top) -->
+        <div style="position:absolute;top:54%;left:50%;transform:translate(-50%,-50%);
+                    text-align:center;z-index:1;pointer-events:none;width:100%">
+          <div class="arc-ete">${ete}</div>
+          <div class="arc-ete-sub">Block <strong>${blockStr}</strong> · Remain <strong>${remStr}</strong></div>
+          ${statusChip ? `<div style="display:flex;align-items:center;justify-content:center;
+              flex-wrap:wrap;margin-top:4px">${statusChip}</div>` : ''}
+        </div>
+      </div>
+
+      <!-- Side info: 3-col (airport / center gap / airport) -->
+      <div class="arc-body-grid" style="margin-top:8px">
 
         <!-- Left: DEP ICAO + STD + WX + Gate -->
         <div class="arc-side">
           <div class="arc-apt">${toICAO(dep)}</div>
           <div class="arc-tutc">${std}</div>
           ${stdL ? `<div class="arc-tloc">${stdL}</div>` : ''}
-          <div style="margin-top:10px">
+          <div style="margin-top:8px">
             <div class="wx-hdr">${toICAO(dep)} WX</div>
             <div id="wx-${toICAO(dep)}-inline" class="wx-body-sm"><div class="wx-spin-sm"></div></div>
             <div class="arc-gate-row">
               <span id="c-dep-term" class="arc-term-chip"
                 style="display:${crew.dep_term ? 'inline' : 'none'}">T${_esc(crew.dep_term||'')}</span>
-              <span class="brief-lbl" style="margin:0">Gate</span>
+              <span class="brief-lbl" style="margin:0">GATE</span>
               <input id="c-dep" class="input arc-gate-input"
                 type="text" value="${_esc(crew.dep_gate||'')}" placeholder="B3"/>
               <span id="c-dep-auto" style="font-size:11px;color:var(--green)"></span>
@@ -237,87 +314,20 @@ function _arcCard(dep, dest, fltNo, t, cruiseFL, block, remaining, reg, date, cr
           </div>
         </div>
 
-        <!-- Center: flt label + trapezoidal flight profile + ETE overlay -->
-        <div>
-          <div style="text-align:center;margin-bottom:2px">
-            <span class="arc-flt-label">${fltNo}</span>
-          </div>
-          <div style="position:relative">
-            <svg viewBox="0 0 300 90" width="100%"
-                 style="display:block;overflow:visible">
-              <defs>
-                <!-- Left-to-right gradient spanning full userSpace width -->
-                <linearGradient id="fpGrad" x1="0" y1="0" x2="300" y2="0" gradientUnits="userSpaceOnUse">
-                  <stop offset="0%"   stop-color="#c49a3c" stop-opacity="0.85"/>
-                  <stop offset="50%"  stop-color="#f0d080" stop-opacity="1"/>
-                  <stop offset="100%" stop-color="#c49a3c" stop-opacity="0.35"/>
-                </linearGradient>
-                <!-- Vertical fill gradient: gold at cruise level, transparent at ground -->
-                <linearGradient id="fpFill" x1="0" y1="0" x2="0" y2="90" gradientUnits="userSpaceOnUse">
-                  <stop offset="0%"   stop-color="#c49a3c" stop-opacity="0.10"/>
-                  <stop offset="100%" stop-color="#c49a3c" stop-opacity="0"/>
-                </linearGradient>
-                <filter id="fpGlow" x="-5%" y="-80%" width="110%" height="260%">
-                  <feGaussianBlur in="SourceGraphic" stdDeviation="3"/>
-                </filter>
-              </defs>
-
-              <!-- Area fill inside profile -->
-              <path d="M 0,78 L 30,78 L 80,12 L 220,12 L 270,78 L 300,78 Z"
-                fill="url(#fpFill)"/>
-
-              <!-- Glow on climb+cruise+descent -->
-              <polyline points="30,78 80,12 220,12 270,78"
-                stroke="#f0d080" stroke-width="3" fill="none"
-                stroke-linecap="round" stroke-linejoin="round"
-                opacity="0.20" filter="url(#fpGlow)"/>
-
-              <!-- Ground segments — dashed -->
-              <line x1="0"   y1="78" x2="30"  y2="78"
-                stroke="url(#fpGrad)" stroke-width="2"
-                stroke-dasharray="5 3" stroke-linecap="round" opacity="0.55"/>
-              <line x1="270" y1="78" x2="300" y2="78"
-                stroke="url(#fpGrad)" stroke-width="2"
-                stroke-dasharray="5 3" stroke-linecap="round" opacity="0.55"/>
-
-              <!-- Main profile: climb + cruise + descent (solid) -->
-              <polyline points="30,78 80,12 220,12 270,78"
-                stroke="url(#fpGrad)" stroke-width="2.5" fill="none"
-                stroke-linecap="round" stroke-linejoin="round"/>
-
-              <!-- Endpoint dots -->
-              <circle cx="30"  cy="78" r="4" fill="#c49a3c" opacity="0.9"/>
-              <circle cx="270" cy="78" r="4" fill="#c49a3c" opacity="0.38"/>
-            </svg>
-
-            <!-- FL label — above cruise line, will not overlap polyline -->
-            ${cruiseFL ? `<div style="position:absolute;top:4%;left:50%;transform:translateX(-50%);z-index:2">
-              <span class="arc-fl-label">FL${cruiseFL}</span>
-            </div>` : ''}
-
-            <!-- ETE + Block/Rem — inside cruise zone, clearly below the cruise line -->
-            <div style="position:absolute;top:52%;left:50%;transform:translate(-50%,-50%);
-                        text-align:center;z-index:1;pointer-events:none;width:100%">
-              <div class="arc-ete">${ete}</div>
-              <div style="font-size:13px;color:var(--text2);font-weight:600;margin-top:3px">
-                Block ${blockStr} · Rem ${remStr}</div>
-              ${statusChip ? `<div style="display:flex;align-items:center;justify-content:center;
-                  flex-wrap:wrap;margin-top:4px">${statusChip}</div>` : ''}
-            </div>
-          </div>
-        </div>
+        <!-- Center: empty spacer (ETE shown above on SVG) -->
+        <div></div>
 
         <!-- Right: ARR ICAO + STA + WX + Gate -->
         <div class="arc-side arc-side-r">
           <div class="arc-apt">${toICAO(dest)}</div>
           <div class="arc-tutc">${sta}</div>
           ${staL ? `<div class="arc-tloc">${staL}</div>` : ''}
-          <div style="margin-top:10px">
+          <div style="margin-top:8px">
             <div class="wx-hdr arc-hdr-r">${toICAO(dest)} WX</div>
             <div id="wx-${toICAO(dest)}-inline" class="wx-body-sm arc-wx-r"><div class="wx-spin-sm" style="float:right"></div></div>
             <div class="arc-gate-row arc-gate-row-r">
               <span id="c-arr-auto" style="font-size:11px;color:var(--green)"></span>
-              <span class="brief-lbl" style="margin:0">Gate</span>
+              <span class="brief-lbl" style="margin:0">GATE</span>
               <input id="c-arr" class="input arc-gate-input"
                 type="text" value="${_esc(crew.arr_gate||'')}" placeholder="A8"/>
               <span id="c-arr-term" class="arc-term-chip"
@@ -330,7 +340,7 @@ function _arcCard(dep, dest, fltNo, t, cruiseFL, block, remaining, reg, date, cr
 
       <!-- Water + Wx Note + Copy -->
       <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:10px">
-        <span class="brief-lbl" style="margin:0;white-space:nowrap">Water</span>
+        <span class="brief-lbl" style="margin:0;white-space:nowrap">WATER</span>
         <input id="c-water" class="input" type="number" min="0" max="100"
           value="${crew.water_pct ?? 100}"
           style="width:64px;height:36px;padding:6px 8px;text-align:center"/>
@@ -341,7 +351,7 @@ function _arcCard(dep, dest, fltNo, t, cruiseFL, block, remaining, reg, date, cr
         <button id="c-copy" class="btn-copy-sm" title="Copy crew brief">📋 Copy</button>
       </div>
 
-      <!-- Stats strip: at bottom -->
+      <!-- Stats strip -->
       ${statsHtml}
 
     </div>`;
@@ -761,7 +771,7 @@ function _applyStyles() {
     /* Force 2-col grid regardless of screen width */
     .grid2f { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
 
-    /* ── Arc body: 3-col grid ── */
+    /* ── Arc body: 3-col grid (flanking side info) ── */
     .arc-body-grid { display:grid;
                      grid-template-columns:minmax(85px,115px) 1fr minmax(85px,115px);
                      gap:10px; align-items:start; }
@@ -770,28 +780,25 @@ function _applyStyles() {
     .arc-hdr-r  { text-align:right; }
     .arc-wx-r   { text-align:right; }
 
-    /* Flight number label */
-    .arc-flt-label { font-size:14px; font-weight:900; color:var(--gold);
-                     letter-spacing:2px; text-transform:uppercase;
-                     text-shadow:0 0 16px rgba(196,154,60,.4); }
+    /* Flight number label — large gold, visually distinct from FL label */
+    .arc-flt-label { font-size:15px; font-weight:900; color:var(--gold);
+                     letter-spacing:3px; text-transform:uppercase;
+                     text-shadow:0 0 18px rgba(196,154,60,.45); }
 
     /* Airport ICAO */
     .arc-apt    { font-size:22px; font-weight:800; letter-spacing:-.5px; line-height:1.1; }
 
-    /* FL label at cruise level */
-    .arc-fl-label { font-family:'JetBrains Mono','SF Mono',monospace;
-                    font-size:12px; font-weight:700; color:rgba(240,208,128,.7);
-                    letter-spacing:.5px; }
-
-    /* STD/STA */
+    /* STD/STA UTC time */
     .arc-tutc   { font-family:'JetBrains Mono','SF Mono',monospace;
                   font-size:20px; font-weight:800; line-height:1.15; }
-    .arc-tloc   { font-size:12px; color:var(--text3); }
+    .arc-tloc   { font-size:12px; color:var(--text2); }
 
-    /* ETE in cruise zone */
+    /* ETE — prominent but not overwhelming */
     .arc-ete    { font-family:'JetBrains Mono','SF Mono',monospace;
-                  font-size:28px; font-weight:800; line-height:1.1; }
-    .arc-sub    { font-size:12px; color:var(--text3); margin-top:1px; }
+                  font-size:22px; font-weight:800; line-height:1.1; color:var(--text); }
+    .arc-ete-sub { font-size:13px; color:var(--text2); font-weight:600;
+                   margin-top:3px; line-height:1.3; }
+    .arc-ete-sub strong { color:var(--text); font-weight:800; }
 
     /* Gate row */
     .arc-gate-row   { display:flex; align-items:center; gap:5px; margin-top:8px;
@@ -800,15 +807,15 @@ function _applyStyles() {
     .arc-gate-input { width:58px !important; height:30px; padding:3px 6px !important;
                       text-align:center; font-weight:700; font-size:14px !important; }
     .arc-term-chip  { font-family:'JetBrains Mono','SF Mono',monospace;
-                      font-size:12px; color:var(--text3); font-weight:700;
-                      background:rgba(148,163,184,.12); border-radius:4px;
+                      font-size:12px; color:var(--text2); font-weight:700;
+                      background:rgba(148,163,184,.15); border-radius:4px;
                       padding:1px 5px; }
 
     /* ── Flight data stats strip ── */
     .arc-stats    { display:grid; grid-template-columns:repeat(auto-fit,minmax(80px,1fr));
                     gap:0; border-top:1px solid var(--border); margin-top:10px; padding-top:8px; }
     .arc-stat     { text-align:center; padding:4px 6px; }
-    .arc-stat-lbl { font-size:11px; color:var(--text3); text-transform:uppercase;
+    .arc-stat-lbl { font-size:11px; color:var(--text2); text-transform:uppercase;
                     letter-spacing:.05em; margin-bottom:2px; }
     .arc-stat-val { font-family:'JetBrains Mono','SF Mono',monospace;
                     font-size:14px; font-weight:700; color:var(--text); }
@@ -823,9 +830,9 @@ function _applyStyles() {
                   border:2px solid var(--border); border-top-color:var(--gold);
                   border-radius:50%; animation:spin .8s linear infinite; }
 
-    /* ── Crew form ── */
-    .brief-lbl   { font-size:12px; color:var(--text3); text-transform:uppercase;
-                   letter-spacing:.04em; margin-bottom:4px; }
+    /* ── Crew form labels — brighter than before ── */
+    .brief-lbl   { font-size:12px; color:var(--text2); text-transform:uppercase;
+                   letter-spacing:.06em; margin-bottom:4px; font-weight:700; }
     .btn-copy-sm { background:rgba(196,154,60,.12); border:1px solid rgba(196,154,60,.25);
                    color:var(--gold); border-radius:8px; cursor:pointer;
                    font-size:14px; font-weight:700; padding:6px 14px;
