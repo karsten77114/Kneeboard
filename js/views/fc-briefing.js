@@ -221,7 +221,8 @@ function _arcCard(dep, dest, fltNo, t, cruiseFL, block, remaining, reg, date, cr
   //  Ground line: y = 148   (74%)
   //  Gate zone:   y = 148 → 200
   //
-  //  Bezier: M 120,148 C 185,148 205,45 225,45 L 275,45 C 295,45 315,148 380,148
+  //  Bezier: M 120,148 C 165,148 180,45 225,45 L 275,45 C 320,45 335,148 380,148
+  //  Symmetric 45px control arms both ends → balanced S-curve top & bottom
 
   return `
     <div class="card arc-wrap" style="margin-bottom:10px">
@@ -250,10 +251,10 @@ function _arcCard(dep, dest, fltNo, t, cruiseFL, block, remaining, reg, date, cr
             </filter>
           </defs>
           <!-- Fill inside profile -->
-          <path d="M 120,148 C 185,148 205,45 225,45 L 275,45 C 295,45 315,148 380,148 L 380,200 L 120,200 Z"
+          <path d="M 120,148 C 165,148 180,45 225,45 L 275,45 C 320,45 335,148 380,148 L 380,200 L 120,200 Z"
             fill="url(#fpFill)"/>
           <!-- Glow -->
-          <path d="M 120,148 C 185,148 205,45 225,45 L 275,45 C 295,45 315,148 380,148"
+          <path d="M 120,148 C 165,148 180,45 225,45 L 275,45 C 320,45 335,148 380,148"
             stroke="#f0d080" stroke-width="5" fill="none" opacity="0.15"
             filter="url(#fpGlow)" stroke-linecap="round" stroke-linejoin="round"/>
           <!-- Ground dashes within side panels (x=0→120, x=380→500) -->
@@ -264,7 +265,7 @@ function _arcCard(dep, dest, fltNo, t, cruiseFL, block, remaining, reg, date, cr
             stroke="url(#fpGrad)" stroke-width="2.5" stroke-dasharray="10 6"
             stroke-linecap="round" opacity="0.65"/>
           <!-- Main bezier profile -->
-          <path d="M 120,148 C 185,148 205,45 225,45 L 275,45 C 295,45 315,148 380,148"
+          <path d="M 120,148 C 165,148 180,45 225,45 L 275,45 C 320,45 335,148 380,148"
             stroke="url(#fpGrad)" stroke-width="3" fill="none"
             stroke-linecap="round" stroke-linejoin="round"/>
           <!-- Endpoint dots -->
@@ -783,10 +784,11 @@ function _applyStyles() {
       z-index: 2;
     }
 
-    /* ── Side panels: top-anchored ── */
+    /* ── Side panels: top-anchored, clipped to own width ── */
     .arc-side-l, .arc-side-r {
       position: absolute;
       top: 5%; width: 22%; z-index: 2;
+      overflow: hidden;
     }
     .arc-side-l { left: 2%; }
     .arc-side-r { right: 2%; text-align: right; }
@@ -805,8 +807,9 @@ function _applyStyles() {
     }
     /* Local time */
     .arc-loc { font-size: clamp(9px, 1.4vw, 12px); color: var(--text2); }
-    /* WX data */
-    .arc-wx  { font-size: clamp(9px, 1.4vw, 13px); color: var(--text); margin-top:4px; line-height:1.4; }
+    /* WX data — allow wrapping within panel, break at spaces */
+    .arc-wx  { font-size: clamp(9px, 1.4vw, 13px); color: var(--text); margin-top:4px; line-height:1.4;
+               white-space: normal; word-break: break-word; overflow-wrap: break-word; }
     .arc-wx-r { text-align: right; }
     .wx-spin-sm { display:inline-block; width:12px; height:12px;
                   border:2px solid var(--border); border-top-color:var(--gold);
