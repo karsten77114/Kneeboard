@@ -212,13 +212,15 @@ function _arcCard(dep, dest, fltNo, t, cruiseFL, block, remaining, reg, date, cr
   const ciStr    = o?.ci       != null ? `CI ${o.ci}`                           : null;
   const altnApt  = o?.altnApt  || null;
   const altnFuel = o?.altnFuel != null ? fuelStr(o.altnFuel)                   : null;
+  const mxshCode = o?.maxShearCode || null;
   const mxshWpt  = o?.maxShearWpt  || null;
   const mxshTime = o?.maxShearTime || null;
-  const mxshStr  = mxshWpt ? (mxshTime ? `${mxshWpt} · ${mxshTime}` : mxshWpt) : null;
+  // Main label: "06/NANNO"; second line: "09:25"
+  const mxshVal  = mxshCode && mxshWpt ? `${mxshCode}/${mxshWpt}` : (mxshWpt || null);
 
   const statsItems = [
-    wcStr   ? { label:'WIND COMP', val: wcStr, cls: wcRaw < 0 ? 'neg' : 'pos' }  : null,
-    mxshStr ? { label:'MAX SHEAR', val: mxshStr }                                  : null,
+    wcStr   ? { label:'WIND COMP', val: wcStr, cls: wcRaw < 0 ? 'neg' : 'pos' }            : null,
+    mxshVal ? { label:'MAX SHEAR', val: mxshVal, val2: mxshTime || null }                    : null,
     ciStr   ? { label:'COST INDEX', val: ciStr }                                   : null,
     altnApt ? { label:'ALTN',        val: altnApt }                                 : null,
   ].filter(Boolean);
@@ -228,6 +230,7 @@ function _arcCard(dep, dest, fltNo, t, cruiseFL, block, remaining, reg, date, cr
         <div class="arc-stat">
           <div class="arc-stat-lbl">${s.label}</div>
           <div class="arc-stat-val${s.cls ? ' arc-stat-' + s.cls : ''}">${s.val}</div>
+          ${s.val2 ? `<div class="arc-stat-val2">${s.val2}</div>` : ''}
         </div>`).join('')}
     </div>` : '';
 
@@ -315,7 +318,7 @@ function _arcCard(dep, dest, fltNo, t, cruiseFL, block, remaining, reg, date, cr
         <div class="arc-abs-c arc-flt-pos">${fltNo}</div>
 
         <!-- ── FL label: just above cruise line (cruise at 22.5% of height) ── -->
-        ${cruiseFL ? `<div class="arc-abs-c arc-fl-pos">FL${cruiseFL}${o?.cruiseTempRaw ? `<span class="arc-fl-temp"> · ${o.cruiseTempRaw}</span>` : ''}</div>` : ''}
+        ${cruiseFL ? `<div class="arc-abs-c arc-fl-pos">FL${cruiseFL}${o?.cruiseTemp ? `<span class="arc-fl-temp">/${o.cruiseTemp.replace('°C','')}</span>` : ''}</div>` : ''}
 
         <!-- ── ETE + info: inside cruise zone (center ~48%) ── -->
         <div class="arc-abs-c arc-ete-pos">
@@ -504,21 +507,16 @@ function _fuelRows(o) {
     </div>`;
   }).join('');
 
-  const toFuelHtml = has(o.toFuel) ? `
-    <div style="background:var(--surface);border-radius:8px;padding:8px 12px;margin-top:10px;display:flex;justify-content:space-between;align-items:center">
-      <span style="font-weight:700">Takeoff Fuel</span>
-      <span style="color:var(--gold);font-size:17px;font-weight:800;font-family:'JetBrains Mono','SF Mono',monospace">${fuelStr(toFuel)}</span>
-    </div>` : '';
-
-  const taxiHtml = has(o.taxiFuel) ? `
-    <div class="data-row">
-      <span class="data-label">Taxi</span>
-      <span class="data-val">${fuelStr(taxiFuel)}</span>
-    </div>` : '';
+  // ── Top section: Total Fuel (editable via Pilot Extra) ──
+  const blockFuelHtml = `
+    <div id="fuel-block-row" style="background:var(--surface);border-radius:8px;padding:8px 12px;display:flex;justify-content:space-between;align-items:center">
+      <span style="font-weight:700">Total Fuel</span>
+      <span id="fuel-block-val" style="color:var(--gold);font-size:17px;font-weight:800;font-family:'JetBrains Mono','SF Mono',monospace">${fuelStr(blockFuel)}</span>
+    </div>`;
 
   const captainHtml = `
-    <div class="data-row" style="margin-top:4px">
-      <span class="data-label" style="color:var(--text2)">+ 機長追加油量</span>
+    <div class="data-row">
+      <span class="data-label" style="color:var(--text2)">+ Pilot Extra Request</span>
       <div style="display:flex;align-items:center;gap:6px">
         <input id="fuel-captain-extra" type="number" min="0" step="100" value="0"
           class="input" style="width:90px;height:32px;text-align:right;padding:4px 8px;font-size:13px">
@@ -526,13 +524,22 @@ function _fuelRows(o) {
       </div>
     </div>`;
 
-  const blockFuelHtml = `
-    <div id="fuel-block-row" style="background:var(--surface);border-radius:8px;padding:8px 12px;margin-top:10px;display:flex;justify-content:space-between;align-items:center">
-      <span style="font-weight:700">Total Fuel</span>
-      <span id="fuel-block-val" style="color:var(--gold);font-size:17px;font-weight:800;font-family:'JetBrains Mono','SF Mono',monospace">${fuelStr(blockFuel)}</span>
-    </div>`;
+  const taxiHtml = has(o.taxiFuel) ? `
+    <div class="data-row">
+      <span class="data-label">Taxi</span>
+      <span class="data-val">${fuelStr(taxiFuel)}</span>
+    </div>` : '';
 
-  return rowHtml + toFuelHtml + taxiHtml + captainHtml + blockFuelHtml;
+  const toFuelHtml = has(o.toFuel) ? `
+    <div style="background:var(--surface);border-radius:8px;padding:8px 12px;margin-bottom:6px;display:flex;justify-content:space-between;align-items:center">
+      <span style="font-weight:700">Takeoff Fuel</span>
+      <span style="color:var(--gold);font-size:17px;font-weight:800;font-family:'JetBrains Mono','SF Mono',monospace">${fuelStr(toFuel)}</span>
+    </div>` : '';
+
+  // Order: Total → Pilot Extra → Taxi → Takeoff → detail rows
+  return blockFuelHtml + captainHtml + taxiHtml
+    + (toFuelHtml ? `<div style="border-top:1px solid var(--border);margin:8px 0"></div>${toFuelHtml}` : '')
+    + rowHtml;
 }
 
 function _bindFuel(o) {
@@ -966,10 +973,12 @@ function _applyStyles() {
     .arc-stat     { text-align:center; padding:4px 6px; }
     .arc-stat-lbl { font-size:11px; color:var(--text2); text-transform:uppercase;
                     letter-spacing:.05em; margin-bottom:2px; }
-    .arc-stat-val { font-family:'JetBrains Mono','SF Mono',monospace;
-                    font-size:14px; font-weight:700; color:var(--text); }
-    .arc-stat-neg { color:var(--red) !important; }
-    .arc-stat-pos { color:var(--green) !important; }
+    .arc-stat-val  { font-family:'JetBrains Mono','SF Mono',monospace;
+                     font-size:14px; font-weight:700; color:var(--text); }
+    .arc-stat-val2 { font-family:'JetBrains Mono','SF Mono',monospace;
+                     font-size:11px; font-weight:600; color:var(--text3); margin-top:1px; }
+    .arc-stat-neg  { color:var(--red) !important; }
+    .arc-stat-pos  { color:var(--green) !important; }
 
     /* ── Crew form ── */
     .brief-lbl   { font-size:12px; color:var(--text2); text-transform:uppercase;

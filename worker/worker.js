@@ -799,9 +799,10 @@ function parseOFP(txt) {
 
   // MAX SHEAR — format: "MXSH XX/WAYPTNAME" in fuel summary block
   // ATGO for that waypoint is the 4-digit time at end of line 2 of its waypoint block
-  m = txt.match(/MXSH\s+\d+\/([A-Z][A-Z0-9]{1,4})/);
+  m = txt.match(/MXSH\s+(\d+)\/([A-Z][A-Z0-9]{1,4})/);
   if (m) {
-    r.maxShearWpt = m[1];
+    r.maxShearCode = m[1];  // e.g. "06"
+    r.maxShearWpt  = m[2];  // e.g. "NANNO"
     // Find the waypoint block and extract ATGO (4-digit time at end of line 2)
     // Waypoint block structure:
     //   LINE1: WAYPTNAME  FL  WIND/SPD  [MACH]  TAS  GS  FUEL  .....  DIST
