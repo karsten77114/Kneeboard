@@ -140,6 +140,94 @@ export async function preloadMetarForFlight(airports) {
   }
 }
 
+// ── Airport Weather (Open-Meteo) ─────────────────────────────────
+// Step 1: aviationweather.gov → lat/lon for ANY ICAO (no static table needed)
+// Step 2: Open-Meteo → human-readable weather (WMO codes)
+// Cache: 30 minutes in store.airportWeather
+
+const _WMO = {
+  0:  { emoji: '☀️',  text: 'Clear sky' },
+  1:  { emoji: '🌤️', text: 'Mainly clear' },
+  2:  { emoji: '⛅',  text: 'Partly cloudy' },
+  3:  { emoji: '☁️',  text: 'Overcast' },
+  45: { emoji: '🌫️', text: 'Foggy' },
+  48: { emoji: '🌫️', text: 'Icy fog' },
+  51: { emoji: '🌦️', text: 'Light drizzle' },
+  53: { emoji: '🌦️', text: 'Drizzle' },
+  55: { emoji: '🌧️', text: 'Heavy drizzle' },
+  61: { emoji: '🌧️', text: 'Light rain' },
+  63: { emoji: '🌧️', text: 'Rain' },
+  65: { emoji: '🌧️', text: 'Heavy rain' },
+  71: { emoji: '🌨️', text: 'Light snow' },
+  73: { emoji: '🌨️', text: 'Snow' },
+  75: { emoji: '❄️',  text: 'Heavy snow' },
+  77: { emoji: '❄️',  text: 'Snow grains' },
+  80: { emoji: '🌦️', text: 'Light showers' },
+  81: { emoji: '🌧️', text: 'Rain showers' },
+  82: { emoji: '⛈️',  text: 'Violent showers' },
+  85: { emoji: '🌨️', text: 'Snow showers' },
+  86: { emoji: '🌨️', text: 'Heavy snow showers' },
+  95: { emoji: '⛈️',  text: 'Thunderstorm' },
+  96: { emoji: '⛈️',  text: 'Thunderstorm + hail' },
+  99: { emoji: '⛈️',  text: 'Thunderstorm + hail' },
+};
+
+export async function fetchAirportWeather(icao) {
+  if (!icao || icao === '—') return null;
+
+  // Return cached if fresh (< 30 min)
+  const cached = store.airportWeather?.[icao];
+  if (cached && !cached.loading && !cached.error &&
+      cached.fetchedAt && (Date.now() - cached.fetchedAt) < 1800000) {
+    return cached;
+  }
+
+  store.setAirportWeather(icao, { loading: true });
+
+  try {
+    // Step 1: Get lat/lon from aviationweather.gov — works for any valid ICAO
+    const aptResp = await fetch(
+      `https://aviationweather.gov/api/data/airport?ids=${icao}&format=json`
+    );
+    if (!aptResp.ok) throw new Error(`Airport lookup ${aptResp.status}`);
+    const aptArr = await aptResp.json();
+    const apt = Array.isArray(aptArr) ? aptArr[0] : aptArr;
+    if (!apt?.lat || !apt?.lon) throw new Error('No coordinates for ' + icao);
+
+    // Step 2: Get current weather from Open-Meteo (free, no API key)
+    const wxUrl = `https://api.open-meteo.com/v1/forecast` +
+      `?latitude=${apt.lat}&longitude=${apt.lon}` +
+      `&current=temperature_2m,weathercode,windspeed_10m,winddirection_10m` +
+      `&windspeed_unit=kt&timezone=auto`;
+    const wxResp = await fetch(wxUrl);
+    if (!wxResp.ok) throw new Error(`Open-Meteo ${wxResp.status}`);
+    const wxJson = await wxResp.json();
+    const cur = wxJson.current;
+
+    const code = cur.weathercode ?? cur.weather_code ?? 0;
+    const wmo  = _WMO[code] || { emoji: '🌡️', text: 'Unknown' };
+
+    const result = {
+      temp:         Math.round(cur.temperature_2m),
+      windspeed:    Math.round(cur.windspeed_10m   ?? cur.wind_speed_10m   ?? 0),
+      winddirection:Math.round(cur.winddirection_10m ?? cur.wind_direction_10m ?? 0),
+      condition:    wmo.text,
+      emoji:        wmo.emoji,
+      code,
+      fetchedAt:    Date.now(),
+      loading:      false,
+      error:        null,
+    };
+
+    store.setAirportWeather(icao, result);
+    return result;
+  } catch (e) {
+    const err = { loading: false, error: e.message, fetchedAt: Date.now() };
+    store.setAirportWeather(icao, err);
+    return err;
+  }
+}
+
 // ── Gate Info (TDX) ──────────────────────────────────────────────
 
 export async function fetchGate(fno, date = '') {

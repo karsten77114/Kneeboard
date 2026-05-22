@@ -21,6 +21,9 @@ const store = {
   // Shared METAR/TAF cache — { ICAO: { metar, taf, fetchedAt, loading, error } }
   wxData: {},
 
+  // Open-Meteo human-readable weather cache — { ICAO: { temp, condition, emoji, fetchedAt, loading, error } }
+  airportWeather: {},
+
   _subs: [],
 
   subscribe(fn) {
@@ -57,11 +60,17 @@ const store = {
     this._emit();
   },
 
+  setAirportWeather(icao, data) {
+    this.airportWeather[icao] = { ...(this.airportWeather[icao] || {}), ...data };
+    this._emit();
+  },
+
   clearFlight() {
     this.flight = null;
     this.briefing = null;
     this.elbData = null;
     this.wxData = {};
+    this.airportWeather = {};
     this._emit();
   },
 };

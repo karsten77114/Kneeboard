@@ -1,7 +1,7 @@
 // Flight Crew > Briefing
 import store from '../store.js';
 import storage from '../services/storage.js';
-import { preloadElbForFlight, preloadMetarForFlight, fetchGate } from '../services/api.js';
+import { preloadElbForFlight, preloadMetarForFlight, fetchGate, fetchAirportWeather } from '../services/api.js';
 import { fuelStr, weightPct, weightClass, weightColor, showToast, toICAO } from '../utils.js';
 
 
@@ -191,6 +191,7 @@ function _render(container) {
   _applyStyles();
   _renderMEL();
   _loadWeather(dep, dest);
+  _loadAirportWeather(dep, dest);
   _bindFuel(o);
   setTimeout(() => _bindCrew(crewKey, fltNo, dep, dest, t, cruiseFL, block), 0);
 }
@@ -303,7 +304,7 @@ function _arcCard(dep, dest, fltNo, t, cruiseFL, block, remaining, reg, date, cr
           <div class="arc-icao">${toICAO(dep)}</div>
           <div class="arc-utc">${std}</div>
           ${stdL ? `<div class="arc-loc">${stdL}</div>` : ''}
-          <div id="wx-${toICAO(dep)}-inline" class="arc-wx"><div class="wx-spin-sm"></div></div>
+          <div id="awx-${toICAO(dep)}">${_wxWidgetHtml(toICAO(dep), store.airportWeather?.[toICAO(dep)], 'l')}</div>
         </div>
 
         <!-- ── Right side: ARR info (top=5%, right=2%) ── -->
@@ -311,7 +312,7 @@ function _arcCard(dep, dest, fltNo, t, cruiseFL, block, remaining, reg, date, cr
           <div class="arc-icao">${toICAO(dest)}</div>
           <div class="arc-utc">${sta}</div>
           ${staL ? `<div class="arc-loc">${staL}</div>` : ''}
-          <div id="wx-${toICAO(dest)}-inline" class="arc-wx arc-wx-r"><div class="wx-spin-sm" style="float:right"></div></div>
+          <div id="awx-${toICAO(dest)}">${_wxWidgetHtml(toICAO(dest), store.airportWeather?.[toICAO(dest)], 'r')}</div>
         </div>
 
         <!-- ── Flight number: top center ── -->
@@ -410,6 +411,41 @@ function _extractFL(route) {
   if (!route) return null;
   const m = route.match(/[NMK]\d{3,4}[FA](\d{3,5})/);
   return m ? m[1] : null;
+}
+
+// ── Airport Weather Widget (Open-Meteo) ──────────────────────────
+
+function _wxWidgetHtml(icao, wx, side) {
+  const isR = side === 'r';
+  if (!wx || wx.loading) {
+    return `<div class="wx-widget${isR ? ' wx-widget-r' : ''}">
+      <div class="wx-spin-sm" style="${isR ? 'margin-left:auto' : ''}"></div>
+    </div>`;
+  }
+  if (wx.error || (!wx.condition && wx.temp == null)) {
+    return '';  // silent fail — don't show widget if no data
+  }
+  return `<div class="wx-widget${isR ? ' wx-widget-r' : ''}">
+    <div class="wx-widget-main">
+      <span class="wx-widget-emoji">${wx.emoji || '🌡️'}</span>
+      <span class="wx-widget-temp">${wx.temp != null ? wx.temp + '°' : '—'}</span>
+    </div>
+    <div class="wx-widget-cond">${_esc(wx.condition || '')}</div>
+  </div>`;
+}
+
+function _loadAirportWeather(dep, dest) {
+  const pairs = [
+    [toICAO(dep),  'l'],
+    [toICAO(dest), 'r'],
+  ].filter(([ic]) => ic && ic !== '—');
+
+  for (const [icao, side] of pairs) {
+    fetchAirportWeather(icao).then(wx => {
+      const el = document.getElementById(`awx-${icao}`);
+      if (el) el.innerHTML = _wxWidgetHtml(icao, wx, side);
+    }).catch(() => {});
+  }
 }
 
 // ── Inline weather (reads from shared store.wxData) ──────────────
@@ -600,9 +636,13 @@ function _crewText(fltNo, dep, dest, t, cruiseFL, crew, block) {
     ? `ARR${crew.arr_term ? ' T' + crew.arr_term : ''} Gate ${crew.arr_gate}` : '';
   const gates = [depGateStr, arrGateStr].filter(Boolean).join(' · ');
 
-  // Current weather for both airports (temp + cloud only, no wind)
-  const depWx  = _wxSummaryText(store.wxData[toICAO(dep)],  { noWind: true });
-  const destWx = _wxSummaryText(store.wxData[toICAO(dest)], { noWind: true });
+  // Prefer Open-Meteo human-readable weather; fall back to METAR parse
+  const _awxDep  = store.airportWeather?.[toICAO(dep)];
+  const _awxDest = store.airportWeather?.[toICAO(dest)];
+  const depWx  = (_awxDep?.condition  ? `${_awxDep.temp}°C  ${_awxDep.condition}`  : null)
+              || _wxSummaryText(store.wxData[toICAO(dep)],  { noWind: true });
+  const destWx = (_awxDest?.condition ? `${_awxDest.temp}°C  ${_awxDest.condition}` : null)
+              || _wxSummaryText(store.wxData[toICAO(dest)], { noWind: true });
   const wxAirports = [
     depWx  ? `${dep}  ${depWx}`  : null,
     destWx ? `${dest}  ${destWx}` : null,
@@ -957,6 +997,36 @@ function _applyStyles() {
     .arc-term-chip { font-family:'JetBrains Mono','SF Mono',monospace;
                      font-size:11px; color:var(--text2); font-weight:700;
                      background:rgba(148,163,184,.15); border-radius:4px; padding:1px 5px; }
+
+    /* ── Weather Widget ── */
+    .wx-widget {
+      background: rgba(0,0,0,0.30);
+      border: 0.5px solid rgba(255,255,255,0.12);
+      border-radius: 8px;
+      padding: 5px 7px;
+      margin-top: 5px;
+      display: inline-block;
+      min-width: 70%;
+      max-width: 100%;
+    }
+    .wx-widget-r {
+      text-align: right;
+      float: right;
+      clear: right;
+    }
+    .wx-widget-main {
+      display: flex; align-items: baseline; gap: 4px;
+    }
+    .wx-widget-r .wx-widget-main { flex-direction: row-reverse; }
+    .wx-widget-emoji { font-size: clamp(15px, 2.4vw, 19px); line-height: 1; }
+    .wx-widget-temp  {
+      font-family: 'JetBrains Mono','SF Mono',monospace;
+      font-size: clamp(13px, 2vw, 16px); font-weight: 800; color: var(--text);
+    }
+    .wx-widget-cond  {
+      font-size: clamp(9px, 1.3vw, 11px); color: var(--text2);
+      line-height: 1.3; margin-top: 1px; word-break: break-word;
+    }
 
     /* ── WX note textarea ── */
     .arc-wx-ta {
