@@ -256,17 +256,17 @@ function _arcCard(dep, dest, fltNo, t, cruiseFL, block, remaining, reg, date, cr
   const statusChip = _elbStatusChip();
 
   // ── SVG coordinate space: 500 × 200 (aspect 5:2, matches container)
-  //  Left panel:  x = 0 → 120  (24%)
-  //  Center:      x = 120 → 380
-  //  Right panel: x = 380 → 500 (24%)
+  //  Left panel:  x = 0 → 90   (18%)  — slopes start at x=90, giving side text more room
+  //  Center:      x = 90 → 410
+  //  Right panel: x = 410 → 500 (18%)
   //  JX label:    y = 0 → 30
   //  Cruise line: y = 45
   //  Cruise zone: y = 45 → 148
   //  Ground line: y = 148   (74%)
   //  Gate zone:   y = 148 → 200
   //
-  //  Bezier: M 120,148 C 155,148 165,45 200,45 L 300,45 C 335,45 345,148 380,148
-  //  Plateau x=200–300 (wider flat zone), 35px symmetric arms both ends
+  //  Bezier: M 90,148 C 125,148 165,45 200,45 L 300,45 C 335,45 375,148 410,148
+  //  Plateau x=200–300 (flat cruise zone), 35px symmetric bezier arms both ends
 
   return `
     <div class="card arc-wrap" style="margin-bottom:10px">
@@ -295,26 +295,26 @@ function _arcCard(dep, dest, fltNo, t, cruiseFL, block, remaining, reg, date, cr
             </filter>
           </defs>
           <!-- Fill inside profile -->
-          <path d="M 120,148 C 155,148 165,45 200,45 L 300,45 C 335,45 345,148 380,148 L 380,200 L 120,200 Z"
+          <path d="M 90,148 C 125,148 165,45 200,45 L 300,45 C 335,45 375,148 410,148 L 410,200 L 90,200 Z"
             fill="url(#fpFill)"/>
           <!-- Glow -->
-          <path d="M 120,148 C 155,148 165,45 200,45 L 300,45 C 335,45 345,148 380,148"
+          <path d="M 90,148 C 125,148 165,45 200,45 L 300,45 C 335,45 375,148 410,148"
             stroke="#f0d080" stroke-width="5" fill="none" opacity="0.15"
             filter="url(#fpGlow)" stroke-linecap="round" stroke-linejoin="round"/>
-          <!-- Ground dashes within side panels (x=0→120, x=380→500) -->
-          <line x1="0"   y1="148" x2="120" y2="148"
+          <!-- Ground dashes within side panels (x=0→90, x=410→500) -->
+          <line x1="0"   y1="148" x2="90"  y2="148"
             stroke="url(#fpGrad)" stroke-width="2.5" stroke-dasharray="10 6"
             stroke-linecap="round" opacity="0.65"/>
-          <line x1="380" y1="148" x2="500" y2="148"
+          <line x1="410" y1="148" x2="500" y2="148"
             stroke="url(#fpGrad)" stroke-width="2.5" stroke-dasharray="10 6"
             stroke-linecap="round" opacity="0.65"/>
           <!-- Main bezier profile -->
-          <path d="M 120,148 C 155,148 165,45 200,45 L 300,45 C 335,45 345,148 380,148"
+          <path d="M 90,148 C 125,148 165,45 200,45 L 300,45 C 335,45 375,148 410,148"
             stroke="url(#fpGrad)" stroke-width="3" fill="none"
             stroke-linecap="round" stroke-linejoin="round"/>
           <!-- Endpoint dots -->
-          <circle cx="120" cy="148" r="5.5" fill="#c49a3c" opacity="0.9"/>
-          <circle cx="380" cy="148" r="5.5" fill="#c49a3c" opacity="0.62"/>
+          <circle cx="90"  cy="148" r="5.5" fill="#c49a3c" opacity="0.9"/>
+          <circle cx="410" cy="148" r="5.5" fill="#c49a3c" opacity="0.62"/>
         </svg>
 
         <!-- ── Left side: DEP info (top=5%, width=22%) ── -->
