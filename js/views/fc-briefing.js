@@ -214,7 +214,7 @@ function _arcCard(dep, dest, fltNo, t, cruiseFL, block, remaining, reg, date, cr
   return `
     <div class="card arc-wrap" style="margin-bottom:10px">
 
-      <!-- Header: [DEP + STD] | [Flight No.] | [ARR + STA] -->
+      <!-- Header: [DEP+STD] | [FlightNo] | [ARR+STA] -->
       <div class="arc-hdr">
         <div class="arc-endpoint">
           <div class="arc-apt">${toICAO(dep)}</div>
@@ -231,111 +231,103 @@ function _arcCard(dep, dest, fltNo, t, cruiseFL, block, remaining, reg, date, cr
         </div>
       </div>
 
-      <!-- SVG arc: fill + glow + ETE overlay -->
-      <div style="position:relative;max-width:460px;margin:0 auto">
-        <svg viewBox="0 0 300 82" width="100%"
-             style="display:block;overflow:visible">
-          <defs>
-            <linearGradient id="arcGrad" x1="0" y1="0" x2="1" y2="0">
-              <stop offset="0%"   stop-color="#c49a3c" stop-opacity="0.9"/>
-              <stop offset="45%"  stop-color="#f0d080" stop-opacity="1"/>
-              <stop offset="100%" stop-color="#c49a3c" stop-opacity="0.35"/>
-            </linearGradient>
-            <linearGradient id="arcFill" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%"   stop-color="#c49a3c" stop-opacity="0.10"/>
-              <stop offset="100%" stop-color="#c49a3c" stop-opacity="0"/>
-            </linearGradient>
-            <filter id="arcGlow" x="-20%" y="-60%" width="140%" height="220%">
-              <feGaussianBlur in="SourceGraphic" stdDeviation="3" result="blur"/>
-              <feComposite in="SourceGraphic" in2="blur" operator="over"/>
-            </filter>
-          </defs>
-          <!-- Subtle area fill -->
-          <path d="M 18,77 C 85,8 215,8 282,77 L 282,77 L 18,77 Z"
-            fill="url(#arcFill)"/>
-          <!-- Glow layer (blurred duplicate) -->
-          <path d="M 18,77 C 85,8 215,8 282,77"
-            stroke="#f0d080" stroke-width="1.5" fill="none"
-            stroke-linecap="round" opacity="0.25"
-            filter="url(#arcGlow)"/>
-          <!-- Main arc stroke -->
-          <path d="M 18,77 C 85,8 215,8 282,77"
-            stroke="url(#arcGrad)" stroke-width="2.5" fill="none"
-            stroke-linecap="round"/>
-          <!-- Endpoint dots -->
-          <circle cx="18"  cy="77" r="4.5" fill="#c49a3c" opacity="0.9"/>
-          <circle cx="282" cy="77" r="4.5" fill="#c49a3c" opacity="0.38"/>
-        </svg>
+      <!-- 3-col body: [WX+Gate DEP] | [Arc SVG] | [WX+Gate ARR] -->
+      <div class="arc-body-grid">
 
-        <!-- FL label at arc peak — minimal style, NOT capsule -->
-        ${cruiseFL ? `<div style="position:absolute;top:0;left:50%;transform:translateX(-50%);z-index:2">
-          <span class="arc-fl-label">FL${cruiseFL}</span>
-        </div>` : ''}
+        <!-- Left: DEP weather + gate -->
+        <div class="arc-side">
+          <div class="wx-hdr">${toICAO(dep)} WX</div>
+          <div id="wx-${toICAO(dep)}-inline" class="wx-body-sm"><div class="wx-spin-sm"></div></div>
+          <div class="arc-gate-row">
+            <span id="c-dep-term" class="arc-term-chip"
+              style="display:${crew.dep_term ? 'inline' : 'none'}">T${_esc(crew.dep_term||'')}</span>
+            <span class="brief-lbl" style="margin:0">Gate</span>
+            <input id="c-dep" class="input arc-gate-input"
+              type="text" value="${_esc(crew.dep_gate||'')}" placeholder="B3"/>
+            <span id="c-dep-auto" style="font-size:11px;color:var(--green)"></span>
+          </div>
+        </div>
 
-        <!-- ETE + status overlaid in arc bowl -->
-        <div style="position:absolute;top:55%;left:50%;transform:translate(-50%,-50%);
-                    text-align:center;z-index:1;width:100%;pointer-events:none">
-          <div class="arc-ete">${ete}</div>
-          <div class="arc-sub" style="margin-top:2px">Block ${blockStr} · Rem ${remStr}</div>
-          ${reg !== '—' ? `<div class="arc-sub" style="color:var(--blue);display:flex;align-items:center;
-              justify-content:center;gap:6px;flex-wrap:wrap;margin-top:3px">
-            <span>${reg}${date ? ' · ' + _dateLabel(date) : ''}</span>
-            ${_elbStatusChip()}
+        <!-- Center: SVG arc + FL label + ETE overlay -->
+        <div style="position:relative">
+          <svg viewBox="0 0 300 82" width="100%"
+               style="display:block;overflow:visible">
+            <defs>
+              <linearGradient id="arcGrad" x1="0" y1="0" x2="1" y2="0">
+                <stop offset="0%"   stop-color="#c49a3c" stop-opacity="0.9"/>
+                <stop offset="45%"  stop-color="#f0d080" stop-opacity="1"/>
+                <stop offset="100%" stop-color="#c49a3c" stop-opacity="0.35"/>
+              </linearGradient>
+              <linearGradient id="arcFill" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%"   stop-color="#c49a3c" stop-opacity="0.11"/>
+                <stop offset="100%" stop-color="#c49a3c" stop-opacity="0"/>
+              </linearGradient>
+            </defs>
+            <!-- Area fill — steeper arch -->
+            <path d="M 18,77 C 35,5 265,5 282,77 Z" fill="url(#arcFill)"/>
+            <!-- Glow layer -->
+            <path d="M 18,77 C 35,5 265,5 282,77"
+              stroke="#f0d080" stroke-width="2" fill="none"
+              stroke-linecap="round" opacity="0.18"
+              style="filter:blur(4px)"/>
+            <!-- Main arc -->
+            <path d="M 18,77 C 35,5 265,5 282,77"
+              stroke="url(#arcGrad)" stroke-width="2.5" fill="none"
+              stroke-linecap="round"/>
+            <!-- Endpoint dots -->
+            <circle cx="18"  cy="77" r="4.5" fill="#c49a3c" opacity="0.9"/>
+            <circle cx="282" cy="77" r="4.5" fill="#c49a3c" opacity="0.38"/>
+          </svg>
+
+          <!-- FL label at peak -->
+          ${cruiseFL ? `<div style="position:absolute;top:0;left:50%;transform:translateX(-50%);z-index:2">
+            <span class="arc-fl-label">FL${cruiseFL}</span>
           </div>` : ''}
-        </div>
-      </div>
 
-      <!-- Weather + Gate: directly below arc (no separator from stats) -->
-      <div style="border-top:1px solid var(--border);padding-top:10px;margin-top:6px">
-        <div class="grid2f" style="gap:12px;margin-bottom:10px">
-          <!-- DEP: left-aligned -->
-          <div>
-            <div class="wx-hdr">${toICAO(dep)} WX</div>
-            <div id="wx-${toICAO(dep)}-inline" class="wx-body-sm"><div class="wx-spin-sm"></div></div>
-            <div style="display:flex;align-items:center;gap:6px;margin-top:8px">
-              <span id="c-dep-term"
-                style="font-family:var(--font-mono);font-size:12px;color:var(--text3);font-weight:700;
-                       background:rgba(148,163,184,.12);border-radius:4px;padding:1px 5px;
-                       display:${crew.dep_term ? 'inline' : 'none'}">T${_esc(crew.dep_term||'')}</span>
-              <span class="brief-lbl" style="margin:0">Gate</span>
-              <input id="c-dep" class="input" type="text"
-                style="width:72px;height:32px;padding:4px 8px;text-align:center;font-weight:700"
-                value="${_esc(crew.dep_gate||'')}" placeholder="B3"/>
-              <span id="c-dep-auto" style="font-size:12px;color:var(--green)"></span>
-            </div>
-          </div>
-          <!-- ARR: right-aligned -->
-          <div style="text-align:right">
-            <div class="wx-hdr">${toICAO(dest)} WX</div>
-            <div id="wx-${toICAO(dest)}-inline" class="wx-body-sm"><div class="wx-spin-sm"></div></div>
-            <div style="display:flex;align-items:center;gap:6px;margin-top:8px;justify-content:flex-end">
-              <span id="c-arr-auto" style="font-size:12px;color:var(--green)"></span>
-              <span class="brief-lbl" style="margin:0">Gate</span>
-              <input id="c-arr" class="input" type="text"
-                style="width:72px;height:32px;padding:4px 8px;text-align:center;font-weight:700"
-                value="${_esc(crew.arr_gate||'')}" placeholder="A8"/>
-              <span id="c-arr-term"
-                style="font-family:var(--font-mono);font-size:12px;color:var(--text3);font-weight:700;
-                       background:rgba(148,163,184,.12);border-radius:4px;padding:1px 5px;
-                       display:${crew.arr_term ? 'inline' : 'none'}">T${_esc(crew.arr_term||'')}</span>
-            </div>
+          <!-- ETE + status in bowl -->
+          <div style="position:absolute;top:52%;left:50%;transform:translate(-50%,-50%);
+                      text-align:center;z-index:1;width:100%;pointer-events:none">
+            <div class="arc-ete">${ete}</div>
+            <div style="font-size:13px;color:var(--text2);margin-top:3px;font-weight:600">
+              Block ${blockStr} · Rem ${remStr}</div>
+            ${reg !== '—' ? `<div style="font-size:12px;color:var(--blue);display:flex;align-items:center;
+                justify-content:center;gap:6px;flex-wrap:wrap;margin-top:4px">
+              <span>${reg}${date ? ' · ' + _dateLabel(date) : ''}</span>
+              ${_elbStatusChip()}
+            </div>` : ''}
           </div>
         </div>
-        <!-- Water + Wx Note + Copy -->
-        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-          <span class="brief-lbl" style="margin:0;white-space:nowrap">Water</span>
-          <input id="c-water" class="input" type="number" min="0" max="100"
-            value="${crew.water_pct ?? 100}"
-            style="width:64px;height:36px;padding:6px 8px;text-align:center"/>
-          <span class="brief-lbl" style="margin:0">%</span>
-          <input id="c-wx" class="input" type="text" placeholder="wx note…"
-            value="${_esc(crew.wx_note||'')}"
-            style="flex:1;min-width:100px;height:36px;padding:6px 10px"/>
-          <button id="c-copy" class="btn-copy-sm" title="Copy crew brief">📋 Copy</button>
+
+        <!-- Right: ARR weather + gate -->
+        <div class="arc-side arc-side-r">
+          <div class="wx-hdr arc-hdr-r">${toICAO(dest)} WX</div>
+          <div id="wx-${toICAO(dest)}-inline" class="wx-body-sm arc-wx-r"><div class="wx-spin-sm" style="float:right"></div></div>
+          <div class="arc-gate-row arc-gate-row-r">
+            <span id="c-arr-auto" style="font-size:11px;color:var(--green)"></span>
+            <span class="brief-lbl" style="margin:0">Gate</span>
+            <input id="c-arr" class="input arc-gate-input"
+              type="text" value="${_esc(crew.arr_gate||'')}" placeholder="A8"/>
+            <span id="c-arr-term" class="arc-term-chip"
+              style="display:${crew.arr_term ? 'inline' : 'none'}">T${_esc(crew.arr_term||'')}</span>
+          </div>
         </div>
+
+      </div><!-- end arc-body-grid -->
+
+      <!-- Water + Wx Note + Copy (no border) -->
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:10px">
+        <span class="brief-lbl" style="margin:0;white-space:nowrap">Water</span>
+        <input id="c-water" class="input" type="number" min="0" max="100"
+          value="${crew.water_pct ?? 100}"
+          style="width:64px;height:36px;padding:6px 8px;text-align:center"/>
+        <span class="brief-lbl" style="margin:0">%</span>
+        <input id="c-wx" class="input" type="text" placeholder="wx note…"
+          value="${_esc(crew.wx_note||'')}"
+          style="flex:1;min-width:100px;height:36px;padding:6px 10px"/>
+        <button id="c-copy" class="btn-copy-sm" title="Copy crew brief">📋 Copy</button>
       </div>
 
-      <!-- Stats strip: at bottom, compact -->
+      <!-- Stats strip: at bottom -->
       ${statsHtml}
 
     </div>`;
@@ -410,7 +402,7 @@ function _wxInlineHtml(c) {
   if (!items.length) return `<div style="color:var(--text3);font-size:10px">—</div>`;
 
   const mono = "font-family:'JetBrains Mono','SF Mono',monospace";
-  return `<div style="${mono};font-size:11px;color:var(--text);line-height:1.6;white-space:nowrap">${items.map(_esc).join(' ')}</div>`;
+  return `<div style="${mono};font-size:12px;color:var(--text);line-height:1.6;white-space:nowrap">${items.map(_esc).join(' ')}</div>`;
 }
 
 // ── Fuel ─────────────────────────────────────────────────────────
@@ -755,7 +747,7 @@ function _applyStyles() {
     /* Force 2-col grid regardless of screen width */
     .grid2f { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
 
-    /* ── Arc header: 3-column grid ── */
+    /* ── Arc: header 3-col grid ── */
     .arc-hdr        { display:grid; grid-template-columns:1fr auto 1fr;
                       align-items:flex-start; margin-bottom:0; gap:4px; }
     .arc-endpoint   { display:flex; flex-direction:column; }
@@ -763,57 +755,75 @@ function _applyStyles() {
     .arc-mid-hdr    { display:flex; justify-content:center; align-items:flex-start;
                       padding-top:4px; }
 
-    /* Flight number — plain gold text, no capsule */
+    /* Flight number — plain gold, no capsule */
     .arc-flt-label  { font-size:15px; font-weight:900; color:var(--gold);
                       letter-spacing:2px; text-transform:uppercase;
                       text-shadow:0 0 16px rgba(196,154,60,.4); }
 
     /* Airport ICAO */
-    .arc-apt    { font-size:26px; font-weight:800; letter-spacing:-.5px; line-height:1.1; }
+    .arc-apt        { font-size:26px; font-weight:800; letter-spacing:-.5px; line-height:1.1; }
 
-    /* FL label at peak — minimal, NOT a capsule */
-    .arc-fl-label { font-family:'JetBrains Mono','SF Mono',monospace;
-                    font-size:12px; font-weight:700; color:rgba(240,208,128,.7);
-                    letter-spacing:.5px; }
+    /* FL label at peak — plain text, not a pill */
+    .arc-fl-label   { font-family:'JetBrains Mono','SF Mono',monospace;
+                      font-size:12px; font-weight:700; color:rgba(240,208,128,.65);
+                      letter-spacing:.5px; }
 
-    /* STD/STA within endpoint blocks */
-    .arc-tutc   { font-family:'JetBrains Mono','SF Mono',monospace;
-                  font-size:21px; font-weight:800; line-height:1.15; }
-    .arc-tloc   { font-size:12px; color:var(--text3); }
+    /* STD/STA in endpoint blocks */
+    .arc-tutc       { font-family:'JetBrains Mono','SF Mono',monospace;
+                      font-size:21px; font-weight:800; line-height:1.15; }
+    .arc-tloc       { font-size:12px; color:var(--text3); }
 
     /* ETE in bowl */
-    .arc-ete    { font-family:'JetBrains Mono','SF Mono',monospace;
-                  font-size:30px; font-weight:800; line-height:1.1; }
-    .arc-sub    { font-size:12px; color:var(--text3); margin-top:1px; }
+    .arc-ete        { font-family:'JetBrains Mono','SF Mono',monospace;
+                      font-size:30px; font-weight:800; line-height:1.1; }
+    .arc-sub        { font-size:12px; color:var(--text3); margin-top:1px; }
 
-    /* Stats strip — now at bottom, more compact */
+    /* Arc body: 3-col with weather flanking arc */
+    .arc-body-grid  { display:grid;
+                      grid-template-columns:minmax(0,1fr) minmax(0,1.5fr) minmax(0,1fr);
+                      gap:10px; align-items:center; margin-top:6px; }
+    .arc-side       { display:flex; flex-direction:column; }
+    .arc-side-r     { align-items:flex-end; }
+    .arc-hdr-r      { text-align:right; }
+    .arc-wx-r       { text-align:right; }
+
+    /* Gate row */
+    .arc-gate-row   { display:flex; align-items:center; gap:5px; margin-top:8px;
+                      flex-wrap:wrap; }
+    .arc-gate-row-r { justify-content:flex-end; }
+    .arc-gate-input { width:60px !important; height:30px; padding:3px 6px !important;
+                      text-align:center; font-weight:700; font-size:14px !important; }
+    .arc-term-chip  { font-family:'JetBrains Mono','SF Mono',monospace;
+                      font-size:12px; color:var(--text3); font-weight:700;
+                      background:rgba(148,163,184,.12); border-radius:4px;
+                      padding:1px 5px; }
 
     /* ── Flight data stats strip (bottom of card) ── */
-    .arc-stats     { display:grid; grid-template-columns:repeat(auto-fit,minmax(80px,1fr));
-                     gap:0; border-top:1px solid var(--border); margin-top:10px; padding-top:8px; }
-    .arc-stat      { text-align:center; padding:4px 6px; }
-    .arc-stat-lbl  { font-size:11px; color:var(--text3); text-transform:uppercase;
-                     letter-spacing:.05em; margin-bottom:2px; }
-    .arc-stat-val  { font-family:'JetBrains Mono','SF Mono',monospace;
-                     font-size:14px; font-weight:700; color:var(--text); }
-    .arc-stat-neg  { color:var(--red) !important; }
-    .arc-stat-pos  { color:var(--green) !important; }
+    .arc-stats      { display:grid; grid-template-columns:repeat(auto-fit,minmax(80px,1fr));
+                      gap:0; border-top:1px solid var(--border); margin-top:10px; padding-top:8px; }
+    .arc-stat       { text-align:center; padding:4px 6px; }
+    .arc-stat-lbl   { font-size:11px; color:var(--text3); text-transform:uppercase;
+                      letter-spacing:.05em; margin-bottom:2px; }
+    .arc-stat-val   { font-family:'JetBrains Mono','SF Mono',monospace;
+                      font-size:14px; font-weight:700; color:var(--text); }
+    .arc-stat-neg   { color:var(--red) !important; }
+    .arc-stat-pos   { color:var(--green) !important; }
 
     /* ── Weather inline ── */
-    .wx-hdr     { font-size:12px; font-weight:700; color:var(--gold);
-                  text-transform:uppercase; letter-spacing:.05em; margin-bottom:4px; }
-    .wx-body-sm { min-height:16px; }
-    .wx-spin-sm { display:inline-block; width:12px; height:12px;
-                  border:2px solid var(--border); border-top-color:var(--gold);
-                  border-radius:50%; animation:spin .8s linear infinite; }
+    .wx-hdr         { font-size:12px; font-weight:700; color:var(--gold);
+                      text-transform:uppercase; letter-spacing:.05em; margin-bottom:4px; }
+    .wx-body-sm     { min-height:16px; }
+    .wx-spin-sm     { display:inline-block; width:12px; height:12px;
+                      border:2px solid var(--border); border-top-color:var(--gold);
+                      border-radius:50%; animation:spin .8s linear infinite; }
 
     /* ── Crew form ── */
-    .brief-lbl  { font-size:12px; color:var(--text3); text-transform:uppercase;
-                  letter-spacing:.04em; margin-bottom:4px; }
-    .btn-copy-sm { background:rgba(196,154,60,.12); border:1px solid rgba(196,154,60,.25);
-                   color:var(--gold); border-radius:8px; cursor:pointer;
-                   font-size:14px; font-weight:700; padding:6px 14px;
-                   white-space:nowrap; flex-shrink:0; font-family:inherit; }
+    .brief-lbl      { font-size:12px; color:var(--text3); text-transform:uppercase;
+                      letter-spacing:.04em; margin-bottom:4px; }
+    .btn-copy-sm    { background:rgba(196,154,60,.12); border:1px solid rgba(196,154,60,.25);
+                      color:var(--gold); border-radius:8px; cursor:pointer;
+                      font-size:14px; font-weight:700; padding:6px 14px;
+                      white-space:nowrap; flex-shrink:0; font-family:inherit; }
     .btn-copy-sm:active { opacity:.7; }
   `;
   document.head.appendChild(s);
