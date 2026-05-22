@@ -916,7 +916,7 @@ function _applyStyles() {
     .arc-side-l, .arc-side-r {
       position: absolute;
       top: 5%; width: 22%; z-index: 2;
-      overflow: hidden;
+      overflow: visible;
     }
     .arc-side-l { left: 2%; }
     .arc-side-r { right: 2%; text-align: right; }
@@ -999,20 +999,21 @@ function _applyStyles() {
                      background:rgba(148,163,184,.15); border-radius:4px; padding:1px 5px; }
 
     /* ── Weather Widget ── */
+    /* display:block + width:100% ensures it fills the side panel on ALL screen sizes.
+       No float — float in narrow absolute-positioned panels is unreliable on mobile. */
     .wx-widget {
+      display: block;
+      box-sizing: border-box;
+      width: 100%;
       background: rgba(0,0,0,0.30);
       border: 0.5px solid rgba(255,255,255,0.12);
       border-radius: 8px;
       padding: 5px 7px;
       margin-top: 5px;
-      display: inline-block;
-      min-width: 70%;
-      max-width: 100%;
     }
     .wx-widget-r {
       text-align: right;
-      float: right;
-      clear: right;
+      /* No float — use text-align only, block layout handles positioning */
     }
     .wx-widget-main {
       display: flex; align-items: baseline; gap: 4px;
@@ -1025,7 +1026,8 @@ function _applyStyles() {
     }
     .wx-widget-cond  {
       font-size: clamp(9px, 1.3vw, 11px); color: var(--text2);
-      line-height: 1.3; margin-top: 1px; word-break: break-word;
+      line-height: 1.3; margin-top: 1px;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
     }
 
     /* ── WX note textarea ── */

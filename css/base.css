@@ -267,7 +267,7 @@ body {
   border: 1px solid var(--border);
   border-radius: var(--radius-sm); padding: 12px;
   font-family: 'JetBrains Mono', 'SF Mono', 'Courier New', monospace;
-  font-size: 13px; line-height: 1.7; color: var(--blue);
+  font-size: 13px; line-height: 1.7; color: var(--text);
   word-break: normal; overflow-wrap: break-word; white-space: pre-wrap;
 }
 
