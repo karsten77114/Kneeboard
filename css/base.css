@@ -1,28 +1,30 @@
-/* ── Design Tokens — DESIGN_FUSION_SJX ───────────────────────── */
+/* ── Design Tokens — CARBON × APPLE (方案D) ─────────────────── */
 :root {
-  /* Background layers */
-  --bg:      #0c1118;   /* color-bg-deep  */
-  --bg-base: #141c28;   /* color-bg-base  */
-  --surface: #1c2638;   /* color-bg-surface */
-  --card:    #1e2a3a;   /* color-bg-card  */
+  /* Background layers
+     Apple HIG 暗色系 (#1c1c1e 系) 加上方案C的微暖碳色調
+     結果：比純 Apple 更有溫度，比方案C更精煉 */
+  --bg:      #0d0c0b;   /* 極深暖近黑，加深以拉開與卡片對比 */
+  --bg-base: #181614;   /* 中間層 */
+  --surface: #201e1b;   /* 略亮的 surface */
+  --card:    #2e2b26;   /* 提亮，讓卡片從背景中跳出 */
 
-  /* Text */
-  --text:    #faf7f2;                  /* warm white      */
-  --text2:   #b8c1ec;                  /* lavender blue   */
-  --text3:   rgba(184,193,236,0.62);   /* muted           */
+  /* Text — 暖白 + 精煉暖灰（Apple 慣用的分級灰階） */
+  --text:    #f5f5f0;                  /* Apple label-primary，稍帶暖白 */
+  --text2:   #b8b0a0;                  /* Apple secondaryLabel，暖灰沙色 */
+  --text3:   rgba(184,176,160,0.50);   /* Apple tertiaryLabel，muted    */
 
-  /* Gold — primary accent */
+  /* Gold — 保留 Kneeboard 品牌金色 */
   --gold:      #c49a3c;
   --gold-lt:   #d4b46a;
   --gold-dim:  #a07c2e;
-  --gold-glow: rgba(196,154,60,0.35);
+  --gold-glow: rgba(196,154,60,0.30);
 
   /* Accent alias (used across components) */
   --accent: var(--gold);
 
-  /* Border — gold micro-transparent */
-  --border:     rgba(196,154,60,0.14);
-  --border-dim: rgba(255,255,255,0.05);
+  /* Border — Apple 風格：hairline 白色 + 低透明度，比金色邊框更克制 */
+  --border:     rgba(255,255,255,0.08);  /* hairline separator */
+  --border-dim: rgba(255,255,255,0.04);
 
   /* Status colours */
   --green:  #00f5a0;
@@ -50,11 +52,11 @@ body {
   font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', sans-serif;
   font-size: 15px;
   -webkit-text-size-adjust: 100%;
-  /* Ambient background glow (design §5.2) */
+  /* Ambient glow — Carbon × Apple: 非常克制，只有角落微暖光暈 */
   background-image:
-    radial-gradient(ellipse 55% 40% at -5% 50%,  rgba(196,154,60,0.07) 0%, transparent 70%),
-    radial-gradient(ellipse 45% 35% at 105% 15%, rgba(196,154,60,0.09) 0%, transparent 70%),
-    radial-gradient(ellipse 40% 30% at 100% 90%, rgba(238,187,195,0.05) 0%, transparent 70%);
+    radial-gradient(ellipse 50% 35% at -5% 50%,  rgba(196,154,60,0.05) 0%, transparent 70%),
+    radial-gradient(ellipse 40% 30% at 105% 15%, rgba(196,154,60,0.04) 0%, transparent 70%),
+    radial-gradient(ellipse 35% 25% at 100% 90%, rgba(196,154,60,0.03) 0%, transparent 70%);
   background-attachment: fixed;
 }
 
@@ -70,10 +72,10 @@ body {
 /* ── Cards ────────────────────────────────────────────────────── */
 .card {
   background: var(--card);
-  border: 1px solid var(--border);
+  border: 0.5px solid var(--border);   /* Apple hairline separator */
   border-radius: var(--radius-md);
   padding: 16px;
-  box-shadow: 0 4px 24px rgba(196,154,60,0.06);
+  box-shadow: 0 2px 12px rgba(0,0,0,0.25), 0 1px 3px rgba(0,0,0,0.15);
 }
 .card-title {
   font-size: 12px; font-weight: 700; letter-spacing: 0.7px;

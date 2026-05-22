@@ -142,7 +142,15 @@ function _render(container) {
       <!-- ATC Route + MEL -->
       <div class="grid2" style="margin-bottom:10px">
         <div class="card">
-          <div class="card-title">ATC Clearance Route</div>
+          <div class="card-title" style="display:flex;align-items:center;justify-content:space-between;gap:8px">
+            <span>ATC Clearance Route</span>
+            <div style="display:flex;align-items:center;gap:5px;flex-shrink:0">
+              <span style="font-size:11px;color:var(--text2);font-weight:600;white-space:nowrap">OFP No.</span>
+              <input id="c-ofp-no" class="input" type="text" placeholder="—"
+                value="${_esc(crew.ofp_no||'')}"
+                style="width:72px;height:26px;padding:2px 6px;font-size:12px;font-family:'JetBrains Mono','SF Mono',monospace;text-align:center"/>
+            </div>
+          </div>
           <div class="route-box" id="atc-route-box" data-raw="${(d.atsRoute || d.flightRoute || '').replace(/"/g,'&quot;')}">${_extractRoute(d.atsRoute || d.flightRoute)}</div>
         </div>
         <div class="card" id="mel-card">
@@ -195,10 +203,9 @@ function _arcCard(dep, dest, fltNo, t, cruiseFL, block, remaining, reg, date, cr
   const altnApt  = o?.altnApt  || null;
   const altnFuel = o?.altnFuel != null ? fuelStr(o.altnFuel)                   : null;
   const statsItems = [
-    dist    ? { label:'距離',      val: dist }                                         : null,
-    wcStr   ? { label:'WIND COMP', val: wcStr, cls: wcRaw < 0 ? 'neg' : 'pos' }       : null,
-    ciStr   ? { label:'COST INDEX',val: ciStr }                                        : null,
-    altnApt ? { label:'備降 ALTN', val: altnApt + (altnFuel ? ' · ' + altnFuel : '') } : null,
+    wcStr   ? { label:'WIND COMP', val: wcStr, cls: wcRaw < 0 ? 'neg' : 'pos' }  : null,
+    ciStr   ? { label:'COST INDEX', val: ciStr }                                   : null,
+    altnApt ? { label:'備降 ALTN',  val: altnApt }                                 : null,
   ].filter(Boolean);
   const statsHtml = statsItems.length ? `
     <div class="arc-stats">
@@ -299,6 +306,7 @@ function _arcCard(dep, dest, fltNo, t, cruiseFL, block, remaining, reg, date, cr
         <div class="arc-abs-c arc-ete-pos">
           <div class="arc-ete">${ete}</div>
           <div class="arc-ete-sub">Block <strong>${blockStr}</strong> · Remain <strong>${remStr}</strong></div>
+          ${dist ? `<div class="arc-ete-sub" style="margin-top:1px;color:var(--text3)">${dist}</div>` : ''}
           ${statusChip ? `<div style="margin-top:4px;display:flex;justify-content:center">${statusChip}</div>` : ''}
         </div>
 
@@ -324,8 +332,18 @@ function _arcCard(dep, dest, fltNo, t, cruiseFL, block, remaining, reg, date, cr
 
       </div><!-- end arc-va -->
 
+      <!-- ── PIC / CIC row ── -->
+      <div style="display:flex;gap:8px;align-items:center;margin-top:10px;flex-wrap:wrap">
+        <span class="brief-lbl" style="margin:0;white-space:nowrap">PIC</span>
+        <input id="c-pic" class="input" type="text" placeholder="姓名"
+          value="${_esc(crew.pic||'')}" style="flex:1;min-width:80px;height:32px;padding:4px 8px;font-size:13px"/>
+        <span class="brief-lbl" style="margin:0;white-space:nowrap">CIC</span>
+        <input id="c-cic" class="input" type="text" placeholder="姓名"
+          value="${_esc(crew.cic||'')}" style="flex:1;min-width:80px;height:32px;padding:4px 8px;font-size:13px"/>
+      </div>
+
       <!-- ── Below visual area: WATER row + WX NOTE (full-width auto-resize) ── -->
-      <div style="display:flex;gap:8px;align-items:center;margin-top:10px">
+      <div style="display:flex;gap:8px;align-items:center;margin-top:8px">
         <span class="brief-lbl" style="margin:0;white-space:nowrap">WATER</span>
         <input id="c-water" class="input" type="number" min="0" max="100"
           value="${crew.water_pct ?? 100}"
@@ -415,7 +433,26 @@ function _wxInlineHtml(c) {
   const line1 = [wind, temp].filter(Boolean).map(_esc).join(' ');
   const line2 = cloud ? _esc(cloud) : '';
   const html  = line2 ? `${line1}<br>${line2}` : line1;
-  return `<div style="${mono};font-size:clamp(9px,1.4vw,12px);color:var(--text);line-height:1.5">${html}</div>`;
+  return `<div style="${mono};font-size:clamp(11px,1.8vw,14px);color:var(--text);line-height:1.5">${html}</div>`;
+}
+
+// ── Weather text summary (for copy output) ───────────────────────
+
+function _wxSummaryText(c) {
+  if (!c || c.loading || c.error) return null;
+  const metar = c.metar || '';
+  const windM = metar.match(/\b(VRB|\d{3})(\d{2,3})(G\d{2,3})?KT\b/);
+  const wind  = windM ? `${windM[1]}/${windM[2]}${windM[3]||''}kt` : null;
+  const tempM = metar.match(/\b(M?\d{2})\/(M?\d{2})\b/);
+  const temp  = tempM ? `${tempM[1].replace('M', '-')}°C` : null;
+  let cond = null;
+  if (/\bCAVOK\b/.test(metar)) {
+    cond = 'CAVOK';
+  } else {
+    const cloudM = metar.match(/\b(FEW|SCT|BKN|OVC)(\d{3})(CB|TCU)?\b/);
+    if (cloudM) cond = cloudM[0];
+  }
+  return [wind, temp, cond].filter(Boolean).join(' ') || null;
 }
 
 // ── Fuel ─────────────────────────────────────────────────────────
@@ -534,18 +571,36 @@ function _crewText(fltNo, dep, dest, t, cruiseFL, crew, block) {
   const blk   = block !== null ? _fmtMins(block) : '—';
   const water = (crew.water_pct != null) ? crew.water_pct + '%' : '100%';
   const wx    = crew.wx_note || 'smooth flight expected';
+
+  // Gate format: "DEP T4 Gate 57 · ARR T1 Gate B6"
   const depGateStr = crew.dep_gate
-    ? `DEP Gate ${crew.dep_term ? crew.dep_term + '/' : ''}${crew.dep_gate}` : '';
+    ? `DEP${crew.dep_term ? ' T' + crew.dep_term : ''} Gate ${crew.dep_gate}` : '';
   const arrGateStr = crew.arr_gate
-    ? `ARR Gate ${crew.arr_term ? crew.arr_term + '/' : ''}${crew.arr_gate}` : '';
-  const gates = [depGateStr, arrGateStr].filter(Boolean).join('  ·  ');
+    ? `ARR${crew.arr_term ? ' T' + crew.arr_term : ''} Gate ${crew.arr_gate}` : '';
+  const gates = [depGateStr, arrGateStr].filter(Boolean).join(' · ');
+
+  // PIC / CIC line
+  const crewLine = [
+    crew.pic ? `PIC ${crew.pic}` : null,
+    crew.cic ? `CIC ${crew.cic}` : null,
+  ].filter(Boolean).join('  ·  ');
+
+  // Current weather for both airports (temp + conditions)
+  const depWx  = _wxSummaryText(store.wxData[toICAO(dep)]);
+  const destWx = _wxSummaryText(store.wxData[toICAO(dest)]);
+  const wxAirports = [
+    depWx  ? `${dep}  ${depWx}`  : null,
+    destWx ? `${dest}  ${destWx}` : null,
+  ].filter(Boolean).join('\n');
 
   return [
     `${fltNo}  ${dep} → ${dest}`,
     `STD ${t.std||'—'}  STA ${t.sta||'—'}`,
     `ETE ${ete}  Block ${blk}`,
     gates,
+    crewLine,
     `Cruise FL${fl}  Water ${water}`,
+    wxAirports,
     `Wx: ${wx}`,
   ].filter(Boolean).join('\n');
 }
@@ -556,14 +611,17 @@ function _bindCrew(crewKey, fltNo, dep, dest, t, cruiseFL, block) {
 
   function _save() {
     const crew = storage.get(crewKey, {});
-    crew.dep_gate  = document.getElementById('c-dep')?.value   || '';
-    crew.arr_gate  = document.getElementById('c-arr')?.value   || '';
+    crew.dep_gate  = document.getElementById('c-dep')?.value    || '';
+    crew.arr_gate  = document.getElementById('c-arr')?.value    || '';
     crew.water_pct = parseInt(document.getElementById('c-water')?.value || '100', 10);
-    crew.wx_note   = document.getElementById('c-wx')?.value    || '';
+    crew.wx_note   = document.getElementById('c-wx')?.value     || '';
+    crew.pic       = document.getElementById('c-pic')?.value    || '';
+    crew.cic       = document.getElementById('c-cic')?.value    || '';
+    crew.ofp_no    = document.getElementById('c-ofp-no')?.value || '';
     storage.set(crewKey, crew);
   }
 
-  ['c-dep','c-arr','c-water','c-wx'].forEach(id => {
+  ['c-dep','c-arr','c-water','c-wx','c-pic','c-cic','c-ofp-no'].forEach(id => {
     document.getElementById(id)?.addEventListener('input', _save);
   });
 
@@ -820,7 +878,7 @@ function _applyStyles() {
     /* Local time */
     .arc-loc { font-size: clamp(9px, 1.4vw, 12px); color: var(--text2); }
     /* WX data — allow wrapping within panel, break at spaces */
-    .arc-wx  { font-size: clamp(9px, 1.4vw, 13px); color: var(--text); margin-top:4px; line-height:1.4;
+    .arc-wx  { font-size: clamp(11px, 1.8vw, 14px); color: var(--text); margin-top:4px; line-height:1.4;
                white-space: normal; word-break: break-word; overflow-wrap: break-word; }
     .arc-wx-r { text-align: right; }
     .wx-spin-sm { display:inline-block; width:12px; height:12px;
@@ -839,8 +897,8 @@ function _applyStyles() {
     .arc-fl-pos {
       top: 12%;
       font-family: 'JetBrains Mono','SF Mono',monospace;
-      font-size: clamp(9px, 1.3vw, 12px); font-weight: 700; letter-spacing: 1px;
-      color: rgba(184,193,236,0.88);
+      font-size: clamp(13px, 2.2vw, 17px); font-weight: 700; letter-spacing: 1px;
+      color: rgba(184,193,236,0.95);
     }
 
     /* ── ETE box: top=30% (top-anchored below cruise line at 22.5%) ── */
