@@ -1059,7 +1059,7 @@ function _applyStyles() {
     .wx-widget-cond  {
       font-size: clamp(9px, 1.3vw, 11px); color: var(--text2);
       line-height: 1.3; margin-top: 1px;
-      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+      white-space: normal; word-break: break-word;
     }
 
     /* ── WX note textarea ── */
