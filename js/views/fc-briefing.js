@@ -411,7 +411,11 @@ function _wxInlineHtml(c) {
   if (!items.length) return `<div style="color:var(--text3);font-size:10px">—</div>`;
 
   const mono = "font-family:'JetBrains Mono','SF Mono',monospace";
-  return `<div style="${mono};font-size:12px;color:var(--text);line-height:1.6;white-space:nowrap">${items.map(_esc).join(' ')}</div>`;
+  // Line 1: wind + temp, Line 2: cloud — each fits in narrow side panel
+  const line1 = [wind, temp].filter(Boolean).map(_esc).join(' ');
+  const line2 = cloud ? _esc(cloud) : '';
+  const html  = line2 ? `${line1}<br>${line2}` : line1;
+  return `<div style="${mono};font-size:clamp(9px,1.4vw,12px);color:var(--text);line-height:1.5">${html}</div>`;
 }
 
 // ── Fuel ─────────────────────────────────────────────────────────
