@@ -368,7 +368,7 @@ function _arcCard(dep, dest, fltNo, t, cruiseFL, block, remaining, reg, date, cr
           style="width:64px;height:36px;padding:6px 8px;text-align:center"/>
         <span class="brief-lbl" style="margin:0">%</span>
         <div style="flex:1"></div>
-        <button id="c-copy" class="btn-copy-sm" title="Copy crew brief">INFO TO CABIN</button>
+        <button id="c-copy" class="btn-copy-sm" title="Copy crew brief">📋 INFO TO CABIN</button>
       </div>
       <textarea id="c-wx" class="input arc-wx-ta" placeholder="wx note…"
         rows="2">${_esc(crew.wx_note||'')}</textarea>
