@@ -1,5 +1,6 @@
 import storage from './storage.js';
 import store from '../store.js';
+import { parseMetarForWidget } from '../utils.js';
 
 const WORKER = 'https://jx-briefing.karsten77114.workers.dev';
 
@@ -140,102 +141,50 @@ export async function preloadMetarForFlight(airports) {
   }
 }
 
-// ── Airport Weather (Open-Meteo) ─────────────────────────────────
-// Step 1: aviationweather.gov → lat/lon for ANY ICAO (no static table needed)
-// Step 2: Open-Meteo → human-readable weather (WMO codes)
-// Cache: 30 minutes in store.airportWeather
+// ── Airport Weather Widget ────────────────────────────────────────
+// Parses from already-loaded METAR in store.wxData[icao].metar
+// Zero extra network requests — relies on parseMetarForWidget (utils.js)
+// Returns null when METAR not yet loaded (shows spinner); updates DOM
+// once METAR arrives via store subscription → _render → _loadAirportWeather.
+//
+// IMPORTANT: never call store.setAirportWeather (triggers _emit → re-render loop)
+// Write results directly to store.airportWeather[icao] to bypass emit.
 
-const _WMO = {
-  0:  { emoji: '☀️',  text: 'Clear sky' },
-  1:  { emoji: '🌤️', text: 'Mainly clear' },
-  2:  { emoji: '⛅',  text: 'Partly cloudy' },
-  3:  { emoji: '☁️',  text: 'Overcast' },
-  45: { emoji: '🌫️', text: 'Foggy' },
-  48: { emoji: '🌫️', text: 'Icy fog' },
-  51: { emoji: '🌦️', text: 'Light drizzle' },
-  53: { emoji: '🌦️', text: 'Drizzle' },
-  55: { emoji: '🌧️', text: 'Heavy drizzle' },
-  61: { emoji: '🌧️', text: 'Light rain' },
-  63: { emoji: '🌧️', text: 'Rain' },
-  65: { emoji: '🌧️', text: 'Heavy rain' },
-  71: { emoji: '🌨️', text: 'Light snow' },
-  73: { emoji: '🌨️', text: 'Snow' },
-  75: { emoji: '❄️',  text: 'Heavy snow' },
-  77: { emoji: '❄️',  text: 'Snow grains' },
-  80: { emoji: '🌦️', text: 'Light showers' },
-  81: { emoji: '🌧️', text: 'Rain showers' },
-  82: { emoji: '⛈️',  text: 'Violent showers' },
-  85: { emoji: '🌨️', text: 'Snow showers' },
-  86: { emoji: '🌨️', text: 'Heavy snow showers' },
-  95: { emoji: '⛈️',  text: 'Thunderstorm' },
-  96: { emoji: '⛈️',  text: 'Thunderstorm + hail' },
-  99: { emoji: '⛈️',  text: 'Thunderstorm + hail' },
-};
+export function fetchAirportWeather(icao) {
+  if (!icao || icao === '—') return Promise.resolve(null);
 
-// Module-level pending set — prevents duplicate in-flight requests
-// IMPORTANT: never call store.setAirportWeather (which triggers _emit → _render loop)
-// Results are written directly to store.airportWeather[icao] without emitting.
-// The DOM is updated via direct el.innerHTML in _loadAirportWeather, not via subscription.
-const _awxPending = new Set();
-
-export async function fetchAirportWeather(icao) {
-  if (!icao || icao === '—') return null;
-
-  // Return cached if fresh (< 30 min) and not errored
+  // Return cache if fresh (< 30 min) and not an error
   const cached = store.airportWeather?.[icao];
-  if (cached && !cached.error &&
-      cached.fetchedAt && (Date.now() - cached.fetchedAt) < 1800000) {
-    return cached;
+  if (cached && !cached.error && cached.fetchedAt &&
+      (Date.now() - cached.fetchedAt) < 1800000) {
+    return Promise.resolve(cached);
   }
 
-  // Skip duplicate in-flight requests — prevents the re-render loop:
-  // fetchAirportWeather → store emit → _render → _loadAirportWeather → fetchAirportWeather
-  if (_awxPending.has(icao)) return cached || null;
-  _awxPending.add(icao);
-
-  try {
-    // Step 1: Get lat/lon from aviationweather.gov — works for any valid ICAO
-    const aptResp = await fetch(
-      `https://aviationweather.gov/api/data/airport?ids=${icao}&format=json`
-    );
-    if (!aptResp.ok) throw new Error(`Airport lookup ${aptResp.status}`);
-    const aptArr = await aptResp.json();
-    const apt = Array.isArray(aptArr) ? aptArr[0] : aptArr;
-    if (!apt?.lat || !apt?.lon) throw new Error('No coordinates for ' + icao);
-
-    // Step 2: Get current weather from Open-Meteo (free, no API key)
-    const wxUrl = `https://api.open-meteo.com/v1/forecast` +
-      `?latitude=${apt.lat}&longitude=${apt.lon}` +
-      `&current=temperature_2m,weathercode,windspeed_10m,winddirection_10m` +
-      `&windspeed_unit=kt&timezone=auto`;
-    const wxResp = await fetch(wxUrl);
-    if (!wxResp.ok) throw new Error(`Open-Meteo ${wxResp.status}`);
-    const wxJson = await wxResp.json();
-    const cur = wxJson.current;
-
-    const code = cur.weathercode ?? cur.weather_code ?? 0;
-    const wmo  = _WMO[code] || { emoji: '🌡️', text: 'Unknown' };
-
-    const result = {
-      temp:          Math.round(cur.temperature_2m),
-      windspeed:     Math.round(cur.windspeed_10m    ?? cur.wind_speed_10m    ?? 0),
-      winddirection: Math.round(cur.winddirection_10m ?? cur.wind_direction_10m ?? 0),
-      condition:     wmo.text,
-      emoji:         wmo.emoji,
-      code,
-      fetchedAt:     Date.now(),
-      error:         null,
-    };
-
-    // Write directly — do NOT call store.setAirportWeather() (would trigger _emit → re-render loop)
-    store.airportWeather[icao] = result;
-    _awxPending.delete(icao);
-    return result;
-  } catch (e) {
-    store.airportWeather[icao] = { error: e.message, fetchedAt: Date.now() };
-    _awxPending.delete(icao);
-    return store.airportWeather[icao];
+  // METAR must be loaded first — if not ready, return null (spinner shown)
+  const metarEntry = store.wxData?.[icao];
+  if (!metarEntry || metarEntry.loading || !metarEntry.metar) {
+    // Widget will auto-update when METAR arrives:
+    // preloadMetarForFlight → store.setWxData → _emit → _render → _loadAirportWeather → here again
+    return Promise.resolve(null);
   }
+
+  const parsed = parseMetarForWidget(metarEntry.metar);
+  if (!parsed) {
+    // METAR present but unparseable — silent fail
+    store.airportWeather[icao] = { error: 'parse failed', fetchedAt: Date.now() };
+    return Promise.resolve(store.airportWeather[icao]);
+  }
+
+  const result = {
+    temp:      parsed.temp,
+    condition: parsed.condition,
+    emoji:     parsed.emoji,
+    fetchedAt: metarEntry.fetchedAt || Date.now(),
+    error:     null,
+  };
+  // Direct write — bypass _emit to avoid re-render loop
+  store.airportWeather[icao] = result;
+  return Promise.resolve(result);
 }
 
 // ── Gate Info (TDX) ──────────────────────────────────────────────

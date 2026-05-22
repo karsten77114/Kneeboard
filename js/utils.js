@@ -81,3 +81,69 @@ export function weightClass(pct) {
 export function weightColor(pct) {
   return pct >= 97 ? 'var(--red)' : pct >= 92 ? 'var(--yellow)' : 'var(--green)';
 }
+
+// ── METAR → Weather Widget ────────────────────────────────────────
+// Parses a raw METAR string into { temp, condition, emoji }
+// No network requests — reads data already in store.wxData[ICAO].metar
+export function parseMetarForWidget(metarStr) {
+  if (!metarStr || typeof metarStr !== 'string') return null;
+
+  // ── Temperature ─────────────────────────────────────────────────
+  // Format: 26/21 or M01/M05 (M = minus)
+  const tempM = metarStr.match(/\b(M?\d{2})\/(M?\d{2})\b/);
+  if (!tempM) return null;
+  const temp = parseInt(tempM[1].replace('M', '-'), 10);
+
+  // ── Weather Phenomena (highest-priority first) ───────────────────
+  let condition = null;
+  let emoji = null;
+
+  if (/\bTS/.test(metarStr)) {
+    condition = 'Thunderstorm'; emoji = '⛈️';
+  } else if (/\bFZFG\b/.test(metarStr)) {
+    condition = 'Freezing fog'; emoji = '🌫️';
+  } else if (/\bFZ(RA|DZ)\b/.test(metarStr)) {
+    condition = 'Freezing rain'; emoji = '🌨️';
+  } else if (/\+RA\b|\+SHRA\b/.test(metarStr)) {
+    condition = 'Heavy rain'; emoji = '🌧️';
+  } else if (/\bSHRA\b|\bRA\b/.test(metarStr)) {
+    condition = 'Rain'; emoji = '🌧️';
+  } else if (/-RA\b|-DZ\b|\bDZ\b/.test(metarStr)) {
+    condition = 'Light rain'; emoji = '🌦️';
+  } else if (/\+SN\b/.test(metarStr)) {
+    condition = 'Heavy snow'; emoji = '❄️';
+  } else if (/\bSN\b|\bSHSN\b/.test(metarStr)) {
+    condition = 'Snow'; emoji = '🌨️';
+  } else if (/-SN\b/.test(metarStr)) {
+    condition = 'Light snow'; emoji = '🌨️';
+  } else if (/\bFG\b/.test(metarStr)) {
+    condition = 'Fog'; emoji = '🌫️';
+  } else if (/\bBR\b/.test(metarStr)) {
+    condition = 'Mist'; emoji = '🌫️';
+  } else if (/\bHZ\b/.test(metarStr)) {
+    condition = 'Haze'; emoji = '🌫️';
+  } else if (/\bFU\b/.test(metarStr)) {
+    condition = 'Smoke'; emoji = '🌫️';
+  } else if (/\bSS\b|\bDS\b/.test(metarStr)) {
+    condition = 'Dust storm'; emoji = '💨';
+  }
+
+  // ── Sky Condition (fallback if no wx phenomena) ──────────────────
+  if (!condition) {
+    if (/\bCAVOK\b/.test(metarStr) || /\bNSC\b|\bNCD\b|\bSKC\b|\bCLR\b/.test(metarStr)) {
+      condition = 'Clear'; emoji = '☀️';
+    } else if (/\bOVC/.test(metarStr)) {
+      condition = 'Overcast'; emoji = '☁️';
+    } else if (/\bBKN/.test(metarStr)) {
+      condition = 'Mostly cloudy'; emoji = '🌥️';
+    } else if (/\bSCT/.test(metarStr)) {
+      condition = 'Partly cloudy'; emoji = '⛅';
+    } else if (/\bFEW/.test(metarStr)) {
+      condition = 'Mostly clear'; emoji = '🌤️';
+    } else {
+      condition = 'Clear'; emoji = '☀️';
+    }
+  }
+
+  return { temp, condition, emoji };
+}
