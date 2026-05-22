@@ -92,7 +92,7 @@ function _renderTopBar() {
   const f = store.flight;
   if (!f) {
     topbarEl.innerHTML = `
-      <div class="topbar-logo">Kneeboard</div>
+      <img class="topbar-logo" src="assets/icons/apple-touch-icon.png" alt="Kneeboard">
       <div class="topbar-empty">尚未選擇航班 — 請在主畫面查詢</div>
       ${_utcBlock()}`;
     return;
@@ -102,7 +102,7 @@ function _renderTopBar() {
   const sta = f.sta || '';
   const times = [std, sta].filter(Boolean).join('→');
   topbarEl.innerHTML = `
-    <div class="topbar-logo">KB</div>
+    <img class="topbar-logo" src="assets/icons/apple-touch-icon.png" alt="KB">
     <div class="topbar-flight">
       <div class="topbar-main-row">
         <span class="topbar-flt-num">${f.flightNumber || ''}</span>
