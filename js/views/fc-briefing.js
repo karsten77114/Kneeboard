@@ -221,8 +221,8 @@ function _arcCard(dep, dest, fltNo, t, cruiseFL, block, remaining, reg, date, cr
   //  Ground line: y = 148   (74%)
   //  Gate zone:   y = 148 → 200
   //
-  //  Bezier: M 120,148 C 165,148 180,45 225,45 L 275,45 C 320,45 335,148 380,148
-  //  Symmetric 45px control arms both ends → balanced S-curve top & bottom
+  //  Bezier: M 120,148 C 155,148 165,45 200,45 L 300,45 C 335,45 345,148 380,148
+  //  Plateau x=200–300 (wider flat zone), 35px symmetric arms both ends
 
   return `
     <div class="card arc-wrap" style="margin-bottom:10px">
@@ -251,10 +251,10 @@ function _arcCard(dep, dest, fltNo, t, cruiseFL, block, remaining, reg, date, cr
             </filter>
           </defs>
           <!-- Fill inside profile -->
-          <path d="M 120,148 C 165,148 180,45 225,45 L 275,45 C 320,45 335,148 380,148 L 380,200 L 120,200 Z"
+          <path d="M 120,148 C 155,148 165,45 200,45 L 300,45 C 335,45 345,148 380,148 L 380,200 L 120,200 Z"
             fill="url(#fpFill)"/>
           <!-- Glow -->
-          <path d="M 120,148 C 165,148 180,45 225,45 L 275,45 C 320,45 335,148 380,148"
+          <path d="M 120,148 C 155,148 165,45 200,45 L 300,45 C 335,45 345,148 380,148"
             stroke="#f0d080" stroke-width="5" fill="none" opacity="0.15"
             filter="url(#fpGlow)" stroke-linecap="round" stroke-linejoin="round"/>
           <!-- Ground dashes within side panels (x=0→120, x=380→500) -->
@@ -265,7 +265,7 @@ function _arcCard(dep, dest, fltNo, t, cruiseFL, block, remaining, reg, date, cr
             stroke="url(#fpGrad)" stroke-width="2.5" stroke-dasharray="10 6"
             stroke-linecap="round" opacity="0.65"/>
           <!-- Main bezier profile -->
-          <path d="M 120,148 C 165,148 180,45 225,45 L 275,45 C 320,45 335,148 380,148"
+          <path d="M 120,148 C 155,148 165,45 200,45 L 300,45 C 335,45 345,148 380,148"
             stroke="url(#fpGrad)" stroke-width="3" fill="none"
             stroke-linecap="round" stroke-linejoin="round"/>
           <!-- Endpoint dots -->
@@ -799,14 +799,14 @@ function _applyStyles() {
 
     /* ICAO code — largest text in side panel */
     .arc-icao {
-      font-size: clamp(14px, 3.5vw, 22px);
+      font-size: clamp(17px, 3.5vw, 22px);
       font-weight: 800; letter-spacing: -.5px; line-height: 1.1;
       color: var(--text);
     }
     /* UTC time */
     .arc-utc {
       font-family: 'JetBrains Mono','SF Mono',monospace;
-      font-size: clamp(11px, 2.8vw, 19px);
+      font-size: clamp(14px, 2.8vw, 19px);
       font-weight: 800; line-height: 1.2; color: var(--text);
     }
     /* Local time */
@@ -835,16 +835,16 @@ function _applyStyles() {
       color: rgba(184,193,236,0.88);
     }
 
-    /* ── ETE box: top=45%, centred vertically in cruise zone ── */
-    /* Cruise zone: 22.5% (y=45) to 74% (y=148), centre ≈ 48.25% */
+    /* ── ETE box: top=30% (top-anchored below cruise line at 22.5%) ── */
+    /* Bottom of pill stays well above S-curve walls (~118px on 170px card) */
     .arc-ete-pos {
-      top: 45%;
-      transform: translate(-50%, -50%);
+      top: 30%;
+      transform: translateX(-50%);
       width: 52%;
     }
     .arc-ete-pos .arc-ete {
       font-family: 'JetBrains Mono','SF Mono',monospace;
-      font-size: clamp(18px, 3.8vw, 28px); font-weight: 800; line-height: 1.1;
+      font-size: clamp(16px, 3.5vw, 26px); font-weight: 800; line-height: 1.1;
       color: var(--text);
     }
     .arc-ete-pos .arc-ete-sub {
