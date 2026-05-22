@@ -797,6 +797,41 @@ function parseOFP(txt) {
   m = txt.match(/TOW\s+([\d.]+)\s*\/\s*([\d.]+)/); if (m) { r.towLim = +m[1]; r.towPln = +m[2]; }
   m = txt.match(/LDW\s+([\d.]+)\s*\/\s*([\d.]+)/); if (m) { r.ldwLim = +m[1]; r.ldwPln = +m[2]; }
 
+  // MAX SHEAR — format: "MXSH XX/WAYPTNAME" in fuel summary block
+  // ATGO for that waypoint is the 4-digit time at end of line 2 of its waypoint block
+  m = txt.match(/MXSH\s+\d+\/([A-Z][A-Z0-9]{1,4})/);
+  if (m) {
+    r.maxShearWpt = m[1];
+    // Find the waypoint block and extract ATGO (4-digit time at end of line 2)
+    // Waypoint block structure:
+    //   LINE1: WAYPTNAME  FL  WIND/SPD  [MACH]  TAS  GS  FUEL  .....  DIST
+    //   LINE2: AIRWAY     NM  M_TEMP    ...               ATGO (4 digits at end)
+    const atgoRe = new RegExp('^' + m[1] + '[ \\t][^\\n]+\\n[^\\n]*(\\d{4})[ \\t]*(?:\\n|$)', 'm');
+    const atgoM = txt.match(atgoRe);
+    if (atgoM) {
+      const raw = atgoM[1]; // e.g. "0925"
+      r.maxShearTime = raw.slice(0, 2) + ':' + raw.slice(2, 4); // "09:25"
+    }
+  }
+
+  // T_O_C Cruise Temperature — temperature of the first waypoint AFTER T_O_C
+  // Each waypoint block line 2 has: AIRWAY  NM  M{temp}[/NN]  ...  ATGO
+  // M47 = -47°C, M43 = -43°C, etc.
+  // Structure: T_O_C block (3 lines) + optional blank + next waypoint (line1 + line2)
+  const tocIdx = txt.search(/^T_O_C[ \t]/m);
+  if (tocIdx >= 0) {
+    const sub = txt.slice(tocIdx);
+    // Skip T_O_C: line1 + line2 + coord line, then optional blank lines, then next waypoint line1 + line2
+    const tocTempM = sub.match(
+      /^T_O_C[^\n]+\n[^\n]+\n[^\n]+\n[\s\S]*?^([A-Z]{2,5})[ \t][^\n]+\n[^\n]*(M\d{2,3})/m
+    );
+    if (tocTempM) {
+      r.tocNextWpt  = tocTempM[1]; // "ALCOA"
+      r.cruiseTempRaw = tocTempM[2]; // "M47"
+      r.cruiseTemp  = `-${tocTempM[2].slice(1)}°C`; // "-47°C"
+    }
+  }
+
   return r;
 }
 

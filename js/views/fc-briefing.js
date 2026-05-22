@@ -212,8 +212,13 @@ function _arcCard(dep, dest, fltNo, t, cruiseFL, block, remaining, reg, date, cr
   const ciStr    = o?.ci       != null ? `CI ${o.ci}`                           : null;
   const altnApt  = o?.altnApt  || null;
   const altnFuel = o?.altnFuel != null ? fuelStr(o.altnFuel)                   : null;
+  const mxshWpt  = o?.maxShearWpt  || null;
+  const mxshTime = o?.maxShearTime || null;
+  const mxshStr  = mxshWpt ? (mxshTime ? `${mxshWpt} · ${mxshTime}` : mxshWpt) : null;
+
   const statsItems = [
     wcStr   ? { label:'WIND COMP', val: wcStr, cls: wcRaw < 0 ? 'neg' : 'pos' }  : null,
+    mxshStr ? { label:'MAX SHEAR', val: mxshStr }                                  : null,
     ciStr   ? { label:'COST INDEX', val: ciStr }                                   : null,
     altnApt ? { label:'ALTN',        val: altnApt }                                 : null,
   ].filter(Boolean);
@@ -310,7 +315,7 @@ function _arcCard(dep, dest, fltNo, t, cruiseFL, block, remaining, reg, date, cr
         <div class="arc-abs-c arc-flt-pos">${fltNo}</div>
 
         <!-- ── FL label: just above cruise line (cruise at 22.5% of height) ── -->
-        ${cruiseFL ? `<div class="arc-abs-c arc-fl-pos">FL${cruiseFL}</div>` : ''}
+        ${cruiseFL ? `<div class="arc-abs-c arc-fl-pos">FL${cruiseFL}${o?.cruiseTempRaw ? `<span class="arc-fl-temp"> · ${o.cruiseTempRaw}</span>` : ''}</div>` : ''}
 
         <!-- ── ETE + info: inside cruise zone (center ~48%) ── -->
         <div class="arc-abs-c arc-ete-pos">
@@ -906,6 +911,10 @@ function _applyStyles() {
       font-family: 'JetBrains Mono','SF Mono',monospace;
       font-size: clamp(13px, 2.2vw, 17px); font-weight: 700; letter-spacing: 1px;
       color: rgba(184,193,236,0.95);
+    }
+    .arc-fl-temp {
+      font-size: clamp(11px, 1.8vw, 14px); font-weight: 600;
+      color: rgba(184,193,236,0.65); letter-spacing: 0.5px;
     }
 
     /* ── ETE box: top=30% (top-anchored below cruise line at 22.5%) ── */
