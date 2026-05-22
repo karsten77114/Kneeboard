@@ -892,10 +892,13 @@ function _esc(s) {
 
 // ── Styles ───────────────────────────────────────────────────────
 
+const _STYLE_VER = 'briefing-style-v46';
 function _applyStyles() {
-  if (document.getElementById('briefing-style')) return;
+  if (document.getElementById(_STYLE_VER)) return;
+  // Remove any old version of the style element so updated CSS always wins
+  document.querySelectorAll('[id^="briefing-style"]').forEach(el => el.remove());
   const s = document.createElement('style');
-  s.id = 'briefing-style';
+  s.id = _STYLE_VER;
   s.textContent = `
     :root { --gold:#c49a3c; --gold-lt:#f0d080; --gold-glow:rgba(196,154,60,.25); }
     .grid2f { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
