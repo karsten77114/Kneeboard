@@ -324,18 +324,18 @@ function _arcCard(dep, dest, fltNo, t, cruiseFL, block, remaining, reg, date, cr
 
       </div><!-- end arc-va -->
 
-      <!-- ── Below visual area: WATER + WX NOTE + Copy ── -->
-      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:10px">
+      <!-- ── Below visual area: WATER row + WX NOTE (full-width auto-resize) ── -->
+      <div style="display:flex;gap:8px;align-items:center;margin-top:10px">
         <span class="brief-lbl" style="margin:0;white-space:nowrap">WATER</span>
         <input id="c-water" class="input" type="number" min="0" max="100"
           value="${crew.water_pct ?? 100}"
           style="width:64px;height:36px;padding:6px 8px;text-align:center"/>
         <span class="brief-lbl" style="margin:0">%</span>
-        <input id="c-wx" class="input" type="text" placeholder="wx note…"
-          value="${_esc(crew.wx_note||'')}"
-          style="flex:1;min-width:100px;height:36px;padding:6px 10px"/>
+        <div style="flex:1"></div>
         <button id="c-copy" class="btn-copy-sm" title="Copy crew brief">📋 Copy</button>
       </div>
+      <textarea id="c-wx" class="input arc-wx-ta" placeholder="wx note…"
+        rows="2">${_esc(crew.wx_note||'')}</textarea>
 
       ${statsHtml}
 
@@ -566,6 +566,14 @@ function _bindCrew(crewKey, fltNo, dep, dest, t, cruiseFL, block) {
   ['c-dep','c-arr','c-water','c-wx'].forEach(id => {
     document.getElementById(id)?.addEventListener('input', _save);
   });
+
+  // Auto-resize WX note textarea
+  const wxEl = document.getElementById('c-wx');
+  if (wxEl) {
+    const _resize = () => { wxEl.style.height = 'auto'; wxEl.style.height = wxEl.scrollHeight + 'px'; };
+    wxEl.addEventListener('input', _resize);
+    _resize(); // initial sizing if pre-filled
+  }
 
   copyBtn.addEventListener('click', async () => {
     _save();
@@ -869,6 +877,14 @@ function _applyStyles() {
     .arc-term-chip { font-family:'JetBrains Mono','SF Mono',monospace;
                      font-size:11px; color:var(--text2); font-weight:700;
                      background:rgba(148,163,184,.15); border-radius:4px; padding:1px 5px; }
+
+    /* ── WX note textarea ── */
+    .arc-wx-ta {
+      display: block; width: 100%; margin-top: 8px;
+      min-height: 40px; resize: none; overflow: hidden;
+      line-height: 1.6; padding: 8px 10px;
+      font-size: 14px; font-family: inherit;
+    }
 
     /* ── Stats strip ── */
     .arc-stats    { display:grid; grid-template-columns:repeat(auto-fit,minmax(80px,1fr));
