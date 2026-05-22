@@ -1239,7 +1239,7 @@ async function handleRequest(request, env) {
       const CHART_GROUPS = [
         { group: 'UAD MAPS',          cats: ['UAD'] },
         { group: 'SIGWX WITH ROUTE',  cats: ['SIGWXROUTE'] },
-        { group: 'OFFICIAL VAA/TCA',  cats: ['VAATCA','VATCA','WXVAA','VAA','TCA','APTDXML','ASPDXML','VAAXML','TCAXML'] },
+        { group: 'OFFICIAL VAA/TCA',  cats: ['VAATCA','VATCA','WXVAA','VAA','TCA','VAAXML','TCAXML'] },
         { group: 'SIGNIFICANT WX',    cats: ['WXSIGWX','SIGWX'] },
         { group: 'CDA',               cats: ['CDA','CDAXML'] },
         { group: 'DISPATCHER MAPS',   cats: ['DISP','DISPMAP','DISPATCHER'] },
