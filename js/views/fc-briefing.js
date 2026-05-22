@@ -198,11 +198,29 @@ function _render(container) {
 
 // ── Arc card ─────────────────────────────────────────────────────
 
+// Returns "UTC+8", "UTC-7", "UTC+5:30" etc. from local HHMM + UTC string
+function _utcOffset(localHHMM, utcStr) {
+  if (!localHHMM || !utcStr) return null;
+  const clean = utcStr.replace('Z','').replace(':','');
+  if (clean.length < 4) return null;
+  const lMins = parseInt(localHHMM.slice(0,2),10) * 60 + parseInt(localHHMM.slice(2,4),10);
+  const uMins = parseInt(clean.slice(0,2),10) * 60 + parseInt(clean.slice(2,4),10);
+  let diff = lMins - uMins;
+  if (diff > 720)  diff -= 1440;
+  if (diff < -720) diff += 1440;
+  const sign = diff >= 0 ? '+' : '−';
+  const h = Math.floor(Math.abs(diff) / 60);
+  const m = Math.abs(diff) % 60;
+  return `UTC${sign}${h}${m ? `:${String(m).padStart(2,'0')}` : ''}`;
+}
+
 function _arcCard(dep, dest, fltNo, t, cruiseFL, block, remaining, reg, date, crew, o) {
   const std  = t.std  || '—';
   const sta  = t.sta  || '—';
   const stdL = t.stdLocal ? t.stdLocal + 'L' : '';
   const staL = t.staLocal ? t.staLocal + 'L' : '';
+  const stdTZ = _utcOffset(t.stdLocal, t.std);
+  const staTZ = _utcOffset(t.staLocal, t.sta);
   const ete  = t.ete  || '—';
   const blockStr = block !== null ? _fmtMins(block) : '—';
   const remStr   = (remaining !== null && remaining >= 0) ? _fmtMins(remaining) : '—';
@@ -303,7 +321,7 @@ function _arcCard(dep, dest, fltNo, t, cruiseFL, block, remaining, reg, date, cr
         <div class="arc-side-l">
           <div class="arc-icao">${toICAO(dep)}</div>
           <div class="arc-utc">${std}</div>
-          ${stdL ? `<div class="arc-loc">${stdL}</div>` : ''}
+          ${stdL ? `<div class="arc-loc">${stdL}${stdTZ ? `<span class="arc-tz-chip">${stdTZ}</span>` : ''}</div>` : ''}
           <div id="awx-${toICAO(dep)}">${_wxWidgetHtml(toICAO(dep), store.airportWeather?.[toICAO(dep)], 'l')}</div>
         </div>
 
@@ -311,7 +329,7 @@ function _arcCard(dep, dest, fltNo, t, cruiseFL, block, remaining, reg, date, cr
         <div class="arc-side-r">
           <div class="arc-icao">${toICAO(dest)}</div>
           <div class="arc-utc">${sta}</div>
-          ${staL ? `<div class="arc-loc">${staL}</div>` : ''}
+          ${staL ? `<div class="arc-loc">${staTZ ? `<span class="arc-tz-chip">${staTZ}</span>` : ''}${staL}</div>` : ''}
           <div id="awx-${toICAO(dest)}">${_wxWidgetHtml(toICAO(dest), store.airportWeather?.[toICAO(dest)], 'r')}</div>
         </div>
 
@@ -934,7 +952,21 @@ function _applyStyles() {
       font-weight: 800; line-height: 1.2; color: var(--text);
     }
     /* Local time */
-    .arc-loc { font-size: clamp(9px, 1.4vw, 12px); color: var(--text2); }
+    .arc-loc { font-size: clamp(9px, 1.4vw, 12px); color: var(--text2);
+               display:flex; align-items:center; gap:3px; flex-wrap:wrap; }
+    .arc-side-r .arc-loc { justify-content: flex-end; }
+    /* UTC offset chip — e.g. UTC-7, UTC+8 */
+    .arc-tz-chip {
+      font-family: 'JetBrains Mono','SF Mono',monospace;
+      font-size: clamp(8px, 1.1vw, 10px);
+      font-weight: 700; line-height: 1;
+      color: var(--text3);
+      background: rgba(255,255,255,0.07);
+      border: 0.5px solid rgba(255,255,255,0.13);
+      border-radius: 3px;
+      padding: 1px 4px;
+      white-space: nowrap; flex-shrink: 0;
+    }
     /* WX data — allow wrapping within panel, break at spaces */
     .arc-wx  { font-size: clamp(11px, 1.8vw, 14px); color: var(--text); margin-top:4px; line-height:1.4;
                white-space: normal; word-break: break-word; overflow-wrap: break-word; }
