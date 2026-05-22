@@ -807,7 +807,7 @@ function parseOFP(txt) {
     // Waypoint block structure:
     //   LINE1: WAYPTNAME  FL  WIND/SPD  [MACH]  TAS  GS  FUEL  .....  DIST
     //   LINE2: AIRWAY     NM  M_TEMP    ...               ATGO (4 digits at end)
-    const atgoRe = new RegExp('^' + m[1] + '[ \\t][^\\n]+\\n[^\\n]*(\\d{4})[ \\t]*(?:\\n|$)', 'm');
+    const atgoRe = new RegExp('^' + m[2] + '[ \\t][^\\n]+\\n[^\\n]*(\\d{4})[ \\t]*(?:\\n|$)', 'm');
     const atgoM = txt.match(atgoRe);
     if (atgoM) {
       const raw = atgoM[1]; // e.g. "0925"

@@ -364,11 +364,11 @@ function _arcCard(dep, dest, fltNo, t, cruiseFL, block, remaining, reg, date, cr
       <div style="display:flex;gap:8px;align-items:center;margin-top:8px">
         <span class="brief-lbl" style="margin:0;white-space:nowrap">WATER</span>
         <input id="c-water" class="input" type="number" min="0" max="100"
-          value="${crew.water_pct ?? 100}"
+          value="${crew.water_pct ?? ''}"
           style="width:64px;height:36px;padding:6px 8px;text-align:center"/>
         <span class="brief-lbl" style="margin:0">%</span>
         <div style="flex:1"></div>
-        <button id="c-copy" class="btn-copy-sm" title="Copy crew brief">📋 Copy</button>
+        <button id="c-copy" class="btn-copy-sm" title="Copy crew brief">INFO TO CABIN</button>
       </div>
       <textarea id="c-wx" class="input arc-wx-ta" placeholder="wx note…"
         rows="2">${_esc(crew.wx_note||'')}</textarea>
@@ -537,9 +537,7 @@ function _fuelRows(o) {
     </div>` : '';
 
   // Order: Total → Pilot Extra → Taxi → Takeoff → detail rows
-  return blockFuelHtml + captainHtml + taxiHtml
-    + (toFuelHtml ? `<div style="border-top:1px solid var(--border);margin:8px 0"></div>${toFuelHtml}` : '')
-    + rowHtml;
+  return blockFuelHtml + captainHtml + taxiHtml + toFuelHtml + rowHtml;
 }
 
 function _bindFuel(o) {
@@ -592,7 +590,7 @@ function _crewText(fltNo, dep, dest, t, cruiseFL, crew, block) {
   const fl    = crew.cruise_fl || cruiseFL || '—';
   const ete   = t.ete || '—';
   const blk   = block !== null ? _fmtMins(block) : '—';
-  const water = (crew.water_pct != null) ? crew.water_pct + '%' : '100%';
+  const water = (crew.water_pct != null) ? crew.water_pct + '%' : null;
   const wx    = crew.wx_note || 'smooth flight expected';
 
   // Gate format: "DEP T4 Gate 57 · ARR T1 Gate B6"
@@ -617,7 +615,7 @@ function _crewText(fltNo, dep, dest, t, cruiseFL, crew, block) {
     `ETE ${ete}  Block ${blk}`,
     `Cruise FL${fl}`,
     gates,
-    `Water ${water}`,
+    water ? `Water ${water}` : null,
     wxAirports,
     `Wx: ${wx}`,
   ].filter(Boolean).join('\n');
@@ -631,7 +629,8 @@ function _bindCrew(crewKey, fltNo, dep, dest, t, cruiseFL, block) {
     const crew = storage.get(crewKey, {});
     crew.dep_gate  = document.getElementById('c-dep')?.value    || '';
     crew.arr_gate  = document.getElementById('c-arr')?.value    || '';
-    crew.water_pct = parseInt(document.getElementById('c-water')?.value || '100', 10);
+    const _wv = document.getElementById('c-water')?.value;
+    crew.water_pct = _wv !== '' && _wv != null ? parseInt(_wv, 10) : null;
     crew.wx_note   = document.getElementById('c-wx')?.value     || '';
     crew.pic       = document.getElementById('c-pic')?.value    || '';
     crew.cic       = document.getElementById('c-cic')?.value    || '';
