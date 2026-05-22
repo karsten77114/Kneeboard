@@ -134,6 +134,21 @@ function _render(container) {
   const crewKey = `crew_${fltNo}_${d.date || ''}`;
   const crew    = storage.get(crewKey, {});
 
+  // Auto-fill PIC from LIDO if not already set by user
+  if (d.pic && !crew.pic) {
+    crew.pic = d.pic;
+    storage.set(crewKey, crew);
+    // Sync to PA view's captain field
+    localStorage.setItem('kb_captain', d.pic);
+  }
+
+  // Auto-fill OFP No. from LIDO data (read-only, overwrite if changed)
+  const lidoOfpNo = d.ofpNumber || '';
+  if (lidoOfpNo && crew.ofp_no !== lidoOfpNo) {
+    crew.ofp_no = lidoOfpNo;
+    storage.set(crewKey, crew);
+  }
+
   container.innerHTML = `
     <div class="view-content">
 
@@ -144,12 +159,7 @@ function _render(container) {
         <div class="card">
           <div class="card-title" style="display:flex;align-items:center;justify-content:space-between;gap:8px">
             <span>ATC Clearance Route</span>
-            <div style="display:flex;align-items:center;gap:5px;flex-shrink:0">
-              <span style="font-size:11px;color:var(--text2);font-weight:600;white-space:nowrap">OFP No.</span>
-              <input id="c-ofp-no" class="input" type="text" placeholder="—"
-                value="${_esc(crew.ofp_no||'')}"
-                style="width:72px;height:26px;padding:2px 6px;font-size:12px;font-family:'JetBrains Mono','SF Mono',monospace;text-align:center"/>
-            </div>
+            ${lidoOfpNo ? `<span style="font-family:'JetBrains Mono','SF Mono',monospace;font-size:12px;color:var(--text2);font-weight:700;white-space:nowrap;background:rgba(255,255,255,0.05);padding:2px 8px;border-radius:5px">OFP ${_esc(lidoOfpNo)}</span>` : ''}
           </div>
           <div class="route-box" id="atc-route-box" data-raw="${(d.atsRoute || d.flightRoute || '').replace(/"/g,'&quot;')}">${_extractRoute(d.atsRoute || d.flightRoute)}</div>
         </div>
@@ -205,7 +215,7 @@ function _arcCard(dep, dest, fltNo, t, cruiseFL, block, remaining, reg, date, cr
   const statsItems = [
     wcStr   ? { label:'WIND COMP', val: wcStr, cls: wcRaw < 0 ? 'neg' : 'pos' }  : null,
     ciStr   ? { label:'COST INDEX', val: ciStr }                                   : null,
-    altnApt ? { label:'備降 ALTN',  val: altnApt }                                 : null,
+    altnApt ? { label:'ALTN',        val: altnApt }                                 : null,
   ].filter(Boolean);
   const statsHtml = statsItems.length ? `
     <div class="arc-stats">
@@ -438,7 +448,7 @@ function _wxInlineHtml(c) {
 
 // ── Weather text summary (for copy output) ───────────────────────
 
-function _wxSummaryText(c) {
+function _wxSummaryText(c, opts = {}) {
   if (!c || c.loading || c.error) return null;
   const metar = c.metar || '';
   const windM = metar.match(/\b(VRB|\d{3})(\d{2,3})(G\d{2,3})?KT\b/);
@@ -452,7 +462,8 @@ function _wxSummaryText(c) {
     const cloudM = metar.match(/\b(FEW|SCT|BKN|OVC)(\d{3})(CB|TCU)?\b/);
     if (cloudM) cond = cloudM[0];
   }
-  return [wind, temp, cond].filter(Boolean).join(' ') || null;
+  const parts = opts.noWind ? [temp, cond] : [wind, temp, cond];
+  return parts.filter(Boolean).join(' ') || null;
 }
 
 // ── Fuel ─────────────────────────────────────────────────────────
@@ -512,7 +523,7 @@ function _fuelRows(o) {
 
   const blockFuelHtml = `
     <div id="fuel-block-row" style="background:var(--surface);border-radius:8px;padding:8px 12px;margin-top:10px;display:flex;justify-content:space-between;align-items:center">
-      <span style="font-weight:700">Block Fuel</span>
+      <span style="font-weight:700">Total Fuel</span>
       <span id="fuel-block-val" style="color:var(--gold);font-size:17px;font-weight:800;font-family:'JetBrains Mono','SF Mono',monospace">${fuelStr(blockFuel)}</span>
     </div>`;
 
@@ -579,15 +590,9 @@ function _crewText(fltNo, dep, dest, t, cruiseFL, crew, block) {
     ? `ARR${crew.arr_term ? ' T' + crew.arr_term : ''} Gate ${crew.arr_gate}` : '';
   const gates = [depGateStr, arrGateStr].filter(Boolean).join(' · ');
 
-  // PIC / CIC line
-  const crewLine = [
-    crew.pic ? `PIC ${crew.pic}` : null,
-    crew.cic ? `CIC ${crew.cic}` : null,
-  ].filter(Boolean).join('  ·  ');
-
-  // Current weather for both airports (temp + conditions)
-  const depWx  = _wxSummaryText(store.wxData[toICAO(dep)]);
-  const destWx = _wxSummaryText(store.wxData[toICAO(dest)]);
+  // Current weather for both airports (temp + cloud only, no wind)
+  const depWx  = _wxSummaryText(store.wxData[toICAO(dep)],  { noWind: true });
+  const destWx = _wxSummaryText(store.wxData[toICAO(dest)], { noWind: true });
   const wxAirports = [
     depWx  ? `${dep}  ${depWx}`  : null,
     destWx ? `${dest}  ${destWx}` : null,
@@ -595,11 +600,12 @@ function _crewText(fltNo, dep, dest, t, cruiseFL, crew, block) {
 
   return [
     `${fltNo}  ${dep} → ${dest}`,
+    crew.pic ? `PIC ${crew.pic}` : null,
     `STD ${t.std||'—'}  STA ${t.sta||'—'}`,
     `ETE ${ete}  Block ${blk}`,
+    `Cruise FL${fl}`,
     gates,
-    crewLine,
-    `Cruise FL${fl}  Water ${water}`,
+    `Water ${water}`,
     wxAirports,
     `Wx: ${wx}`,
   ].filter(Boolean).join('\n');
@@ -617,11 +623,12 @@ function _bindCrew(crewKey, fltNo, dep, dest, t, cruiseFL, block) {
     crew.wx_note   = document.getElementById('c-wx')?.value     || '';
     crew.pic       = document.getElementById('c-pic')?.value    || '';
     crew.cic       = document.getElementById('c-cic')?.value    || '';
-    crew.ofp_no    = document.getElementById('c-ofp-no')?.value || '';
     storage.set(crewKey, crew);
+    // Sync PIC to PA view
+    if (crew.pic) localStorage.setItem('kb_captain', crew.pic);
   }
 
-  ['c-dep','c-arr','c-water','c-wx','c-pic','c-cic','c-ofp-no'].forEach(id => {
+  ['c-dep','c-arr','c-water','c-wx','c-pic','c-cic'].forEach(id => {
     document.getElementById(id)?.addEventListener('input', _save);
   });
 

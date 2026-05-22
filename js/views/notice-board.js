@@ -278,7 +278,7 @@ function _applyStyles() {
   const s = document.createElement('style');
   s.id = 'nb-style';
   s.textContent = `
-    .nb-wrap { margin-bottom: 4px; }
+    .nb-wrap { margin-bottom: 4px; margin-top: 14px; }
 
     .nb-header {
       display: flex; align-items: center; gap: 8px;
