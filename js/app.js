@@ -78,6 +78,16 @@ function _utcBlock() {
   </div>`;
 }
 
+function _dateStr(d) {
+  if (!d) return '';
+  const s = String(d).replace(/-/g, '');
+  if (s.length < 8) return '';
+  const months = ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'];
+  const m = parseInt(s.slice(4,6), 10) - 1;
+  if (m < 0 || m > 11) return '';
+  return `${s.slice(6,8)}${months[m]}`;
+}
+
 function _renderTopBar() {
   const f = store.flight;
   if (!f) {
@@ -104,6 +114,7 @@ function _renderTopBar() {
       </div>
       <div class="topbar-meta">
         ${f.reg   ? `<span class="topbar-reg">${f.reg}</span>` : ''}
+        ${f.date  ? `<span class="topbar-date">${_dateStr(f.date)}</span>` : ''}
         ${times   ? `<span class="topbar-times">${times}</span>` : ''}
       </div>
     </div>
