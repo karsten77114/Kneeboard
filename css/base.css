@@ -266,7 +266,7 @@ body {
   border-radius: var(--radius-sm); padding: 12px;
   font-family: 'JetBrains Mono', 'SF Mono', 'Courier New', monospace;
   font-size: 13px; line-height: 1.7; color: var(--blue);
-  word-break: break-all; white-space: pre-wrap;
+  word-break: normal; overflow-wrap: break-word; white-space: pre-wrap;
 }
 
 /* ── Hidden util ──────────────────────────────────────────────── */
