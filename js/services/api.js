@@ -172,17 +172,26 @@ const _WMO = {
   99: { emoji: '⛈️',  text: 'Thunderstorm + hail' },
 };
 
+// Module-level pending set — prevents duplicate in-flight requests
+// IMPORTANT: never call store.setAirportWeather (which triggers _emit → _render loop)
+// Results are written directly to store.airportWeather[icao] without emitting.
+// The DOM is updated via direct el.innerHTML in _loadAirportWeather, not via subscription.
+const _awxPending = new Set();
+
 export async function fetchAirportWeather(icao) {
   if (!icao || icao === '—') return null;
 
-  // Return cached if fresh (< 30 min)
+  // Return cached if fresh (< 30 min) and not errored
   const cached = store.airportWeather?.[icao];
-  if (cached && !cached.loading && !cached.error &&
+  if (cached && !cached.error &&
       cached.fetchedAt && (Date.now() - cached.fetchedAt) < 1800000) {
     return cached;
   }
 
-  store.setAirportWeather(icao, { loading: true });
+  // Skip duplicate in-flight requests — prevents the re-render loop:
+  // fetchAirportWeather → store emit → _render → _loadAirportWeather → fetchAirportWeather
+  if (_awxPending.has(icao)) return cached || null;
+  _awxPending.add(icao);
 
   try {
     // Step 1: Get lat/lon from aviationweather.gov — works for any valid ICAO
@@ -208,23 +217,24 @@ export async function fetchAirportWeather(icao) {
     const wmo  = _WMO[code] || { emoji: '🌡️', text: 'Unknown' };
 
     const result = {
-      temp:         Math.round(cur.temperature_2m),
-      windspeed:    Math.round(cur.windspeed_10m   ?? cur.wind_speed_10m   ?? 0),
-      winddirection:Math.round(cur.winddirection_10m ?? cur.wind_direction_10m ?? 0),
-      condition:    wmo.text,
-      emoji:        wmo.emoji,
+      temp:          Math.round(cur.temperature_2m),
+      windspeed:     Math.round(cur.windspeed_10m    ?? cur.wind_speed_10m    ?? 0),
+      winddirection: Math.round(cur.winddirection_10m ?? cur.wind_direction_10m ?? 0),
+      condition:     wmo.text,
+      emoji:         wmo.emoji,
       code,
-      fetchedAt:    Date.now(),
-      loading:      false,
-      error:        null,
+      fetchedAt:     Date.now(),
+      error:         null,
     };
 
-    store.setAirportWeather(icao, result);
+    // Write directly — do NOT call store.setAirportWeather() (would trigger _emit → re-render loop)
+    store.airportWeather[icao] = result;
+    _awxPending.delete(icao);
     return result;
   } catch (e) {
-    const err = { loading: false, error: e.message, fetchedAt: Date.now() };
-    store.setAirportWeather(icao, err);
-    return err;
+    store.airportWeather[icao] = { error: e.message, fetchedAt: Date.now() };
+    _awxPending.delete(icao);
+    return store.airportWeather[icao];
   }
 }
 
