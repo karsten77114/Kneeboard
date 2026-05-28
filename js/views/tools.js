@@ -19,20 +19,17 @@ export function unmount(container) {}
 
 function _render(container) {
   container.innerHTML = `
-    <div class="tools-wrap">
-      <nav class="tools-sidebar">
-        ${TOOL_LIST.map(t => `
-          <button class="tool-nav-btn ${t.id === activeTool ? 'active' : ''}" data-id="${t.id}">${t.label}</button>`).join('')}
-      </nav>
-      <div id="tool-panel" class="tools-panel"></div>
-    </div>`;
+    <div class="sub-tabbar" id="tools-subtabs">
+      ${TOOL_LIST.map(t =>
+        `<button class="sub-tab-btn ${t.id === activeTool ? 'active' : ''}" data-id="${t.id}">${t.label}</button>`
+      ).join('')}
+    </div>
+    <div id="tool-panel" style="padding:16px"></div>`;
 
-  _applyStyles();
-
-  container.querySelectorAll('.tool-nav-btn').forEach(btn => {
+  container.querySelectorAll('.sub-tab-btn').forEach(btn => {
     btn.onclick = () => {
       activeTool = btn.dataset.id;
-      container.querySelectorAll('.tool-nav-btn').forEach(b => b.classList.toggle('active', b.dataset.id === activeTool));
+      container.querySelectorAll('.sub-tab-btn').forEach(b => b.classList.toggle('active', b.dataset.id === activeTool));
       _renderTool(container.querySelector('#tool-panel'));
     };
   });
@@ -1293,60 +1290,3 @@ function _renderLinks(panel) {
       </div>`).join('')}`;
 }
 
-// ── Styles ────────────────────────────────────────────────────────
-
-function _applyStyles() {
-  const existing = document.getElementById('tools-style');
-  if (existing) existing.remove();
-  const s = document.createElement('style');
-  s.id = 'tools-style';
-  s.textContent = `
-    /* Desktop: side-by-side */
-    .tools-wrap {
-      display: flex; height: 100%;
-    }
-    .tools-sidebar {
-      width: 150px; flex-shrink: 0;
-      border-right: 1px solid var(--border);
-      padding: 10px 6px; overflow-y: auto;
-      display: flex; flex-direction: column; gap: 2px;
-    }
-    .tools-panel {
-      flex: 1; overflow-y: auto; padding: 16px; min-width: 0;
-    }
-    .tool-nav-btn {
-      display: block; width: 100%;
-      padding: 9px 10px; margin: 0;
-      border: none; background: transparent;
-      color: var(--text2); font-size: 12px; font-weight: 600;
-      text-align: left; border-radius: 8px; cursor: pointer;
-      transition: all 0.15s; white-space: nowrap; overflow: hidden;
-      text-overflow: ellipsis;
-    }
-    .tool-nav-btn.active { background: var(--card); color: var(--accent); }
-
-    /* Mobile: horizontal tab strip on top */
-    @media (max-width: 640px) {
-      .tools-wrap   { flex-direction: column; }
-      .tools-sidebar {
-        width: 100%; flex-direction: row; gap: 0;
-        border-right: none; border-bottom: 1px solid var(--border);
-        padding: 0; overflow-x: auto; overflow-y: hidden;
-        -webkit-overflow-scrolling: touch;
-      }
-      .tools-sidebar::-webkit-scrollbar { display: none; }
-      .tools-panel  { padding: 12px; }
-      .tool-nav-btn {
-        flex-shrink: 0; width: auto; border-radius: 0;
-        padding: 10px 12px; font-size: 12px;
-        border-bottom: 2px solid transparent;
-        text-align: center;
-      }
-      .tool-nav-btn.active {
-        background: transparent; color: var(--accent);
-        border-bottom-color: var(--accent);
-      }
-    }
-  `;
-  document.head.appendChild(s);
-}

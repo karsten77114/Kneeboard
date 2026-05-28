@@ -221,33 +221,5 @@
 }
 .section-title:first-child { margin-top: 0; }
 
-/* ── Responsive — iPad landscape sidebar ─────────────────────── */
-@media (min-width: 1024px) {
-  #tabbar { display: none; }
-  #sidebar {
-    display: flex; flex-direction: column;
-    position: fixed; top: calc(var(--topbar-h) + var(--searchbar-h)); bottom: 0; left: 0;
-    width: 200px;
-    background: rgba(13,12,11,0.92);
-    border-right: 1px solid var(--border);
-    backdrop-filter: blur(16px);
-    padding: 16px 8px; gap: 4px;
-  }
-  .sidebar-btn {
-    display: flex; align-items: center; gap: 10px;
-    padding: 10px 12px; border-radius: var(--radius-sm);
-    border: none; background: transparent;
-    color: var(--text2); font-size: 15px; font-weight: 600;
-    cursor: pointer; text-align: left; transition: all 0.15s; font-family: inherit;
-  }
-  .sidebar-btn.active {
-    background: rgba(196,154,60,0.10);
-    color: var(--gold);
-    border-left: 2px solid var(--gold);
-  }
-  #main { left: 200px; }
-}
-
-@media (max-width: 1023px) {
-  #sidebar { display: none; }
-}
+/* ── Sidebar always hidden — bottom tabbar used at all widths ─── */
+#sidebar { display: none; }
