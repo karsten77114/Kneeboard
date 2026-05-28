@@ -410,7 +410,24 @@ async function elbHttpLogin(userId, password) {
       if (r.ok || r.status === 302) {
         const extra = collectSetCookies(r);
         const combined = [initCookie, extra].filter(Boolean).join('; ');
-        if (combined) return combined;
+        if (!combined) continue;
+
+        // Step 3: validate the session by attempting a WebSocket upgrade.
+        // An unauthenticated cookie will be rejected with a non-101 status.
+        try {
+          const wsResp = await fetch(ELB_WS, {
+            headers: {
+              Upgrade: 'websocket',
+              Connection: 'Upgrade',
+              Cookie: combined,
+              'User-Agent': ELB_UA,
+            },
+          });
+          if (wsResp.status !== 101) continue; // session not accepted — wrong credentials
+          wsResp.webSocket?.accept();
+          wsResp.webSocket?.close(1000, 'auth validation');
+          return combined; // session validated
+        } catch { continue; }
       }
     } catch { /* try next */ }
   }

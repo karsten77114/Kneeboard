@@ -1426,6 +1426,7 @@ function _calcOneRow(panel, rowId, safeId) {
     </span>`;
   resultEl.style.background = 'rgba(30,41,59,0.85)';
   resultEl.innerHTML = `<span style="font-family:monospace;font-size:15px;font-weight:700;color:#f1f5f9">${Math.round(corrected).toLocaleString()}</span>`;
+  _refreshIcaoTable(panel);
 }
 
 function _recalcAllColdRows(panel) {
@@ -1434,6 +1435,32 @@ function _recalcAllColdRows(panel) {
   tbody.querySelectorAll('.cold-alt-input').forEach(inp => {
     _calcOneRow(panel, inp.dataset.rowid, inp.dataset.safeid);
   });
+  _refreshIcaoTable(panel);
+}
+
+function _getAllActiveCells(panel) {
+  const activeCells = new Map();
+  const elev = parseFloat(panel.querySelector('#cold-elev')?.value) || 0;
+  const oat  = parseFloat(panel.querySelector('#cold-oat')?.value);
+  if (isNaN(oat) || oat >= 0) return activeCells;
+  const style = { bg: 'rgba(96,165,250,0.15)', border: '#60a5fa' };
+  panel.querySelectorAll('.cold-alt-input').forEach(inp => {
+    const alt = parseFloat(inp.value);
+    if (isNaN(alt) || alt <= 0) return;
+    const haa = Math.max(0, alt - elev);
+    const { haaIdx, cLoIdx, cHiIdx } = _coldLookup(haa, oat);
+    if (haaIdx >= 0) {
+      activeCells.set(`${haaIdx},${cLoIdx}`, style);
+      if (cHiIdx !== cLoIdx) activeCells.set(`${haaIdx},${cHiIdx}`, style);
+    }
+  });
+  return activeCells;
+}
+
+function _refreshIcaoTable(panel) {
+  const wrap = panel.querySelector('#cold-table-wrap');
+  if (!wrap) return;
+  wrap.innerHTML = _coldTable(_getAllActiveCells(panel));
 }
 
 function _refreshColdNotes(panel) {
