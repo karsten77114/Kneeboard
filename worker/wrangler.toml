@@ -4,9 +4,9 @@ compatibility_date = "2024-01-01"
 
 # Secrets (wrangler secret put):
 #   LIDO_USER, LIDO_PASS   — LIDO 自動登入
-#   ELB_USER,  ELB_PASS    — ELB 自動登入
 #   GEMINI_API_KEY          — Gemini AI
 #   UPLOAD_TOKEN            — iOS Shortcut 上傳憑證
+# 注意：ELB 不需帳密，首頁 JSESSIONID cookie 即可驗證
 
 [[kv_namespaces]]
 binding = "NOTICES_KV"

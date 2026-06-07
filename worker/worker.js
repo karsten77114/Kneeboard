@@ -379,60 +379,28 @@ function collectSetCookies(resp) {
   return pieces.map(p => p.split(';')[0].trim()).filter(Boolean).join('; ');
 }
 
-async function elbHttpLogin(userId, password) {
-  // Step 1: load the login SPA page to get initial cookies (JSESSIONID etc.)
+async function elbHttpLogin() {
+  // ELB 的 SPA 首頁 cookie（JSESSIONID）本身即可通過 WebSocket 驗證，
+  // 無需帳號密碼。直接取首頁 cookie → 驗證 WebSocket。
   const pageResp = await fetch(`${ELB_BASE}/elb/`, {
     headers: { 'User-Agent': ELB_UA, 'Accept': 'text/html,*/*' },
     redirect: 'follow',
   });
-  const initCookie = collectSetCookies(pageResp);
+  const sessionCookie = collectSetCookies(pageResp);
+  if (!sessionCookie) throw new Error('ELB 無法取得 session cookie');
 
-  // Step 2: try the REST login endpoint (common Runway / Nexus ELB pattern)
-  const endpoints = [
-    { url: `${ELB_BASE}/logbook-api/login`,     body: { username: userId, password } },
-    { url: `${ELB_BASE}/logbook-api/auth/login`, body: { username: userId, password } },
-    { url: `${ELB_BASE}/elb/api/login`,          body: { username: userId, password } },
-    { url: `${ELB_BASE}/logbook-api/session`,    body: { username: userId, password }, method: 'POST' },
-  ];
-
-  for (const ep of endpoints) {
-    try {
-      const r = await fetch(ep.url, {
-        method: ep.method || 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'User-Agent': ELB_UA,
-          Cookie: initCookie,
-        },
-        body: JSON.stringify(ep.body),
-        redirect: 'follow',
-      });
-      if (r.ok || r.status === 302) {
-        const extra = collectSetCookies(r);
-        const combined = [initCookie, extra].filter(Boolean).join('; ');
-        if (!combined) continue;
-
-        // Step 3: validate the session by attempting a WebSocket upgrade.
-        // An unauthenticated cookie will be rejected with a non-101 status.
-        try {
-          const wsResp = await fetch(ELB_WS, {
-            headers: {
-              Upgrade: 'websocket',
-              Connection: 'Upgrade',
-              Cookie: combined,
-              'User-Agent': ELB_UA,
-            },
-          });
-          if (wsResp.status !== 101) continue; // session not accepted — wrong credentials
-          wsResp.webSocket?.accept();
-          wsResp.webSocket?.close(1000, 'auth validation');
-          return combined; // session validated
-        } catch { continue; }
-      }
-    } catch { /* try next */ }
-  }
-
-  throw new Error('ELB 登入失敗：無法取得 session。請確認帳號密碼正確，或稍後再試。');
+  const wsResp = await fetch(ELB_WS, {
+    headers: {
+      Upgrade: 'websocket',
+      Connection: 'Upgrade',
+      Cookie: sessionCookie,
+      'User-Agent': ELB_UA,
+    },
+  });
+  if (wsResp.status !== 101) throw new Error(`ELB WebSocket 驗證失敗 (HTTP ${wsResp.status})`);
+  wsResp.webSocket?.accept();
+  wsResp.webSocket?.close(1000, 'auth validation');
+  return sessionCookie;
 }
 
 async function elbWSQuery(sessionCookie, funcName, content) {
@@ -1407,19 +1375,12 @@ async function handleRequest(request, env) {
 
     // ── ELB ──────────────────────────────────────────────────────────
 
-    // POST /auth/elb — 自動登入（帳密由 Worker secrets 提供）
+    // POST /auth/elb — 無需帳密，直接取 ELB 首頁 session cookie
     if (url.pathname === '/auth/elb' && request.method === 'POST') {
-      const userId = env.ELB_USER;
-      const password = env.ELB_PASS;
-      if (!userId || !password) {
-        return new Response(JSON.stringify({ error: 'ELB_USER / ELB_PASS 尚未設定於 Worker secrets' }), {
-          status: 500, headers: { ...headers, 'Content-Type': 'application/json' }
-        });
-      }
       try {
-        const sessionCookie = await elbHttpLogin(userId, password);
-        const token = btoa(JSON.stringify({ sessionCookie, userId, ts: Date.now() }));
-        return new Response(JSON.stringify({ success: true, sessionToken: token, userId }), {
+        const sessionCookie = await elbHttpLogin();
+        const token = btoa(JSON.stringify({ sessionCookie, ts: Date.now() }));
+        return new Response(JSON.stringify({ success: true, sessionToken: token }), {
           headers: { ...headers, 'Content-Type': 'application/json' }
         });
       } catch (e) {
