@@ -6,37 +6,37 @@ const WORKER = 'https://jx-briefing.karsten77114.workers.dev';
 
 // ── LIDO ─────────────────────────────────────────────────────────
 
-export async function lidoLogin(userId, password) {
+// 自動登入（帳密由 Worker secrets 提供，前端不需傳入）
+export async function lidoLogin() {
   const resp = await fetch(`${WORKER}/auth/login`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ userId, password }),
+    body: '{}',
   });
   const data = await resp.json();
   if (!resp.ok || data.error) throw new Error(data.error || '登入失敗');
   return data.sessionToken;
 }
 
-// Auto re-login if we have stored credentials, returns true if auth is ready
+// 確保 LIDO session 有效；無 token 時自動重新登入
 export async function ensureLido() {
-  const { token, userId, password } = storage.getLidoCredentials();
+  const token = storage.getLidoToken();
   if (token) return true;
-  if (!userId || !password) return false;
 
   store.setAuth('lido', { status: 'connecting' });
   try {
-    const newToken = await lidoLogin(userId, password);
-    storage.saveLidoSession(userId, password, newToken);
-    store.setAuth('lido', { token: newToken, userId, status: 'ok' });
+    const newToken = await lidoLogin();
+    storage.saveLidoToken(newToken);
+    store.setAuth('lido', { token: newToken, status: 'ok' });
     return true;
   } catch {
-    store.setAuth('lido', { status: 'expired' });
+    store.setAuth('lido', { status: 'error' });
     return false;
   }
 }
 
 export async function fetchBriefing(flight, dateStr, dep = '', dest = '') {
-  const { token } = storage.getLidoCredentials();
+  const token = storage.getLidoToken();
   if (!token) throw new Error('auth_required');
 
   const date = dateStr.replace(/-/g, '');
@@ -46,8 +46,8 @@ export async function fetchBriefing(flight, dateStr, dep = '', dest = '') {
 
   const resp = await fetch(url);
   if (resp.status === 401) {
-    storage.clearLidoSession();
-    store.setAuth('lido', { token: null, status: 'expired' });
+    storage.clearLidoToken();
+    store.setAuth('lido', { token: null, status: 'error' });
     throw new Error('session_expired');
   }
   const data = await resp.json();
@@ -56,48 +56,53 @@ export async function fetchBriefing(flight, dateStr, dep = '', dest = '') {
 }
 
 export async function fetchFlightList(dateStr) {
-  const { token } = storage.getLidoCredentials();
+  const token = storage.getLidoToken();
   if (!token) return [];
 
   const date = dateStr.replace(/-/g, '');
   const resp = await fetch(`${WORKER}/flights?sessionToken=${token}&date=${date}`);
   if (resp.status === 401) {
-    storage.clearLidoSession();
-    store.setAuth('lido', { token: null, status: 'expired' });
+    storage.clearLidoToken();
+    store.setAuth('lido', { token: null, status: 'error' });
     throw new Error('session_expired');
   }
   if (!resp.ok) return [];
   return resp.json();
 }
 
-// Check session validity for all systems
+// 驗證兩個 session 是否有效，過期時自動重新登入
 export async function verifySessions() {
   // LIDO
-  const lido = storage.getLidoCredentials();
-  if (lido.token) {
+  const lidoToken = storage.getLidoToken();
+  if (lidoToken) {
     try {
-      // A small request to verify token
       await fetchFlightList(new Date().toISOString().split('T')[0]);
-      store.setAuth('lido', { userId: lido.userId, status: 'ok' });
+      store.setAuth('lido', { status: 'ok' });
     } catch (e) {
       if (e.message === 'session_expired') {
-        store.setAuth('lido', { token: null, status: 'expired' });
+        // 自動重新登入
+        await ensureLido();
       }
     }
+  } else {
+    // 沒有 token，直接自動登入
+    await ensureLido();
   }
 
   // ELB
-  const elb = storage.getELBCredentials();
-  if (elb.token) {
+  const elbToken = storage.getELBToken();
+  if (elbToken) {
     try {
-      // Minimal query to check ELB session
-      await elbQuery('getAircraftState', { id: 'B-58201' }, elb.token);
-      store.setAuth('elb', { userId: elb.userId, status: 'ok' });
+      await elbQuery('getAircraftState', { id: 'B-58201' }, elbToken);
+      store.setAuth('elb', { status: 'ok' });
     } catch (e) {
       if (/session|auth|401/i.test(e.message)) {
-        store.setAuth('elb', { token: null, status: 'expired' });
+        storage.clearELBToken();
+        await _ensureElb();
       }
     }
+  } else {
+    await _ensureElb();
   }
 }
 
@@ -142,35 +147,23 @@ export async function preloadMetarForFlight(airports) {
 }
 
 // ── Airport Weather Widget ────────────────────────────────────────
-// Parses from already-loaded METAR in store.wxData[icao].metar
-// Zero extra network requests — relies on parseMetarForWidget (utils.js)
-// Returns null when METAR not yet loaded (shows spinner); updates DOM
-// once METAR arrives via store subscription → _render → _loadAirportWeather.
-//
-// IMPORTANT: never call store.setAirportWeather (triggers _emit → re-render loop)
-// Write results directly to store.airportWeather[icao] to bypass emit.
 
 export function fetchAirportWeather(icao) {
   if (!icao || icao === '—') return Promise.resolve(null);
 
-  // Return cache if fresh (< 30 min) and not an error
   const cached = store.airportWeather?.[icao];
   if (cached && !cached.error && cached.fetchedAt &&
       (Date.now() - cached.fetchedAt) < 1800000) {
     return Promise.resolve(cached);
   }
 
-  // METAR must be loaded first — if not ready, return null (spinner shown)
   const metarEntry = store.wxData?.[icao];
   if (!metarEntry || metarEntry.loading || !metarEntry.metar) {
-    // Widget will auto-update when METAR arrives:
-    // preloadMetarForFlight → store.setWxData → _emit → _render → _loadAirportWeather → here again
     return Promise.resolve(null);
   }
 
   const parsed = parseMetarForWidget(metarEntry.metar);
   if (!parsed) {
-    // METAR present but unparseable — silent fail
     store.airportWeather[icao] = { error: 'parse failed', fetchedAt: Date.now() };
     return Promise.resolve(store.airportWeather[icao]);
   }
@@ -182,7 +175,6 @@ export function fetchAirportWeather(icao) {
     fetchedAt: metarEntry.fetchedAt || Date.now(),
     error:     null,
   };
-  // Direct write — bypass _emit to avoid re-render loop
   store.airportWeather[icao] = result;
   return Promise.resolve(result);
 }
@@ -199,27 +191,33 @@ export async function fetchGate(fno, date = '') {
 
 // ── ELB ──────────────────────────────────────────────────────────
 
-export async function elbLogin(userId, password) {
+// 自動登入（帳密由 Worker secrets 提供）
+export async function elbLogin() {
   const resp = await fetch(`${WORKER}/auth/elb`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ userId, password }),
+    body: '{}',
   });
   const data = await resp.json();
   if (!resp.ok || data.error) throw new Error(data.error || 'ELB 登入失敗');
   return data.sessionToken;
 }
 
-// Auto re-login if session expired, returns fresh token or throws
+// 確保 ELB session 有效；無 token 時自動重新登入
 async function _ensureElb() {
-  const { token, userId, password } = storage.getELBCredentials();
+  const token = storage.getELBToken();
   if (token) return token;
-  if (!userId || !password) throw new Error('ELB 未登入');
+
   store.setAuth('elb', { status: 'connecting' });
-  const newToken = await elbLogin(userId, password);
-  storage.saveELBSession(userId, password, newToken);
-  store.setAuth('elb', { token: newToken, userId, status: 'ok' });
-  return newToken;
+  try {
+    const newToken = await elbLogin();
+    storage.saveELBToken(newToken);
+    store.setAuth('elb', { token: newToken, status: 'ok' });
+    return newToken;
+  } catch (e) {
+    store.setAuth('elb', { status: 'error' });
+    throw e;
+  }
 }
 
 const _ELB_SKIP = new Set([
@@ -250,9 +248,8 @@ export async function elbQuery(funcName, content, token) {
   try {
     return await _query(token);
   } catch (e) {
-    // On timeout or session error, clear stored token and retry once with fresh login
     if (/逾時|session|Session|connect|401/i.test(e.message)) {
-      storage.clearELBSession();
+      storage.clearELBToken();
       store.setAuth('elb', { token: null });
       const freshToken = await _ensureElb();
       return await _query(freshToken);
@@ -280,9 +277,8 @@ export async function getMELFull(id, token) {
     const cdlRef   = primary.find(r => r.typeOfReference === 'CDL' || r.typeOfDocumentOther === 'CDL')?.documentNumber;
     if (melRef)      { ml._melCode = melRef; ml._refType = 'MEL'; }
     else if (cdlRef) { ml._melCode = cdlRef; ml._refType = 'CDL'; }
-    else             { ml._refType = 'OTH'; }           // MP task / inspection / other
+    else             { ml._refType = 'OTH'; }
 
-    // FC-based expiry (OTH maintenance tasks use flight-cycle limits, not days)
     const exp0 = d?.expiration?.[0];
     if (!ml._expireDays && exp0?.quantity && exp0?.unitName) {
       ml._expireLimit = `${exp0.quantity} ${exp0.unitName}`;
@@ -329,7 +325,7 @@ export async function preloadElbForFlight(reg) {
   try {
     token = await _ensureElb();
   } catch {
-    return; // ELB 未登入，跳過
+    return;
   }
 
   store.setElbData({ reg, loading: true, mel: [], ntc: [], flights: [] });

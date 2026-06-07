@@ -17,42 +17,14 @@ export const storage = {
     localStorage.removeItem(PREFIX + key);
   },
 
-  // Auth helpers
-  getLidoCredentials() {
-    return {
-      userId:   this.get('lido_userId'),
-      password: this.get('lido_password'),
-      token:    this.get('lido_token'),
-    };
-  },
+  // Auth helpers — 帳密存於 Worker secrets，前端只快取 token
+  getLidoToken()        { return this.get('lido_token'); },
+  saveLidoToken(token)  { this.set('lido_token', token); },
+  clearLidoToken()      { this.remove('lido_token'); },
 
-  saveLidoSession(userId, password, token) {
-    this.set('lido_userId',   userId);
-    this.set('lido_password', password);
-    this.set('lido_token',    token);
-  },
-
-  clearLidoSession() {
-    this.remove('lido_token');
-  },
-
-  getELBCredentials() {
-    return {
-      userId:   this.get('elb_userId'),
-      password: this.get('elb_password'),
-      token:    this.get('elb_token'),
-    };
-  },
-
-  saveELBSession(userId, password, token) {
-    this.set('elb_userId',   userId);
-    this.set('elb_password', password);
-    this.set('elb_token',    token);
-  },
-
-  clearELBSession() {
-    this.remove('elb_token');
-  },
+  getELBToken()         { return this.get('elb_token'); },
+  saveELBToken(token)   { this.set('elb_token', token); },
+  clearELBToken()       { this.remove('elb_token'); },
 
   // Last search inputs
   getLastSearch() {

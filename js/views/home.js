@@ -1,6 +1,6 @@
 import store from '../store.js';
 import storage from '../services/storage.js';
-import { lidoLogin, elbLogin, verifySessions } from '../services/api.js';
+import { ensureLido, elbLogin, verifySessions } from '../services/api.js';
 import { showToast } from '../utils.js';
 import { mountNoticeBoard } from './notice-board.js';
 
@@ -30,7 +30,7 @@ export function mount(container) {
   container.innerHTML = `
     <div class="view-content">
 
-      <!-- Connection Center (頂部，永遠可見) -->
+      <!-- Connection Center -->
       <div class="section-title">連線中心 Connection Hub</div>
       <div class="card" id="conn-center">
         <div class="conn-row" id="conn-lido">
@@ -38,10 +38,10 @@ export function mount(container) {
             <span class="dot dot-grey" id="dot-lido"></span>
             <div>
               <div class="conn-name">LIDO</div>
-              <div class="conn-status" id="status-lido">未登入</div>
+              <div class="conn-status" id="status-lido">連線中…</div>
             </div>
           </div>
-          <button class="btn btn-ghost btn-sm" id="btn-lido-login">登入 Login</button>
+          <button class="btn btn-ghost btn-sm hidden" id="btn-lido-retry">重新連線</button>
         </div>
         <hr class="divider">
         <div class="conn-row" id="conn-elb">
@@ -49,10 +49,10 @@ export function mount(container) {
             <span class="dot dot-grey" id="dot-elb"></span>
             <div>
               <div class="conn-name">ELB</div>
-              <div class="conn-status" id="status-elb">未登入</div>
+              <div class="conn-status" id="status-elb">連線中…</div>
             </div>
           </div>
-          <button class="btn btn-ghost btn-sm" id="btn-elb-login">登入 Login</button>
+          <button class="btn btn-ghost btn-sm hidden" id="btn-elb-retry">重新連線</button>
         </div>
       </div>
 
@@ -69,63 +69,16 @@ export function mount(container) {
       <div id="notice-board-mount"></div>
 
     </div>
-
-    <!-- LIDO Auth Modal -->
-    <div class="overlay hidden" id="modal-lido">
-      <div class="modal">
-        <div class="modal-title">🔐 LIDO 登入</div>
-        <div class="modal-sub">憑證儲存於本裝置，不會上傳第三方。</div>
-        <div class="err-msg hidden" id="lido-err"></div>
-        <div class="form-group">
-          <label class="form-label">LIDO User ID</label>
-          <input class="input" id="lido-user" type="text" placeholder="pilot">
-        </div>
-        <div class="form-group">
-          <label class="form-label">密碼</label>
-          <input class="input" id="lido-pass" type="password">
-        </div>
-        <div class="modal-btns">
-          <button class="btn btn-ghost" id="btn-lido-cancel">取消</button>
-          <button class="btn btn-primary" id="btn-lido-submit">登入</button>
-        </div>
-      </div>
-    </div>
-
-    <!-- ELB Auth Modal -->
-    <div class="overlay hidden" id="modal-elb">
-      <div class="modal">
-        <div class="modal-title">🔐 ELB 登入</div>
-        <div class="modal-sub">ELB 帳號與 LIDO 帳號各自獨立。</div>
-        <div class="err-msg hidden" id="elb-err"></div>
-        <div class="form-group">
-          <label class="form-label">ELB User ID</label>
-          <input class="input" id="elb-user" type="text">
-        </div>
-        <div class="form-group">
-          <label class="form-label">密碼</label>
-          <input class="input" id="elb-pass" type="password">
-        </div>
-        <div class="modal-btns">
-          <button class="btn btn-ghost" id="btn-elb-cancel">取消</button>
-          <button class="btn btn-primary" id="btn-elb-submit">登入</button>
-        </div>
-      </div>
-    </div>
   `;
 
   _applyStyles();
 
-  // Mount notice board component
   mountNoticeBoard(container.querySelector('#notice-board-mount'));
 
   _initAuth();
   _renderAuthStatus();
   _renderPireps();
 
-  // Verify stored sessions in background; updates dot if token expired
-  verifySessions();
-
-  // Re-render when flight or auth changes
   const unsub = store.subscribe(() => {
     _renderAuthStatus();
     _renderPireps();
@@ -145,94 +98,61 @@ function _renderAuthStatus() {
 }
 
 function _updateDot(system) {
-  const { status, userId } = store.auth[system];
-  const dot = document.getElementById(`dot-${system}`);
-  const txt = document.getElementById(`status-${system}`);
-  const btn = document.getElementById(`btn-${system}-login`);
+  const { status } = store.auth[system];
+  const dot  = document.getElementById(`dot-${system}`);
+  const txt  = document.getElementById(`status-${system}`);
+  const btn  = document.getElementById(`btn-${system}-retry`);
   if (!dot) return;
 
   const map = {
-    ok:         { cls: 'dot-green',  label: userId || '已登入', btnTxt: '重新登入' },
-    connecting: { cls: 'dot-yellow', label: '連線中…',         btnTxt: '取消' },
-    expired:    { cls: 'dot-yellow', label: '需重新登入',       btnTxt: '登入' },
-    error:      { cls: 'dot-red',    label: '連線失敗',         btnTxt: '重試' },
-    idle:       { cls: 'dot-grey',   label: '未登入',           btnTxt: '登入 Login' },
+    ok:         { cls: 'dot-green',  label: '已連線' },
+    connecting: { cls: 'dot-yellow', label: '連線中…' },
+    error:      { cls: 'dot-red',    label: '連線失敗' },
+    idle:       { cls: 'dot-grey',   label: '未連線' },
   };
   const m = map[status] || map.idle;
   dot.className = `dot ${m.cls}`;
   txt.textContent = m.label;
-  if (btn) btn.textContent = m.btnTxt;
+  // 只有失敗時才顯示重新連線按鈕
+  if (btn) btn.classList.toggle('hidden', status !== 'error');
 }
 
 function _initAuth() {
-  // Restore stored sessions into store on mount
-  const lido = storage.getLidoCredentials();
-  if (lido.token && lido.userId) {
-    store.setAuth('lido', { token: lido.token, userId: lido.userId, status: 'ok' });
-  } else if (lido.userId) {
-    store.setAuth('lido', { status: 'expired' });
+  // 重新連線按鈕
+  document.getElementById('btn-lido-retry').onclick = () => _autoConnect('lido');
+  document.getElementById('btn-elb-retry').onclick  = () => _autoConnect('elb');
+
+  // 啟動時從 localStorage 還原 token 到 store
+  const lidoToken = storage.getLidoToken();
+  if (lidoToken) {
+    store.setAuth('lido', { token: lidoToken, status: 'ok' });
   }
-  const elb = storage.getELBCredentials();
-  if (elb.token && elb.userId) {
-    store.setAuth('elb', { token: elb.token, userId: elb.userId, status: 'ok' });
+  const elbToken = storage.getELBToken();
+  if (elbToken) {
+    store.setAuth('elb', { token: elbToken, status: 'ok' });
   }
 
-  // LIDO modal
-  document.getElementById('btn-lido-login').onclick = () => _openModal('lido');
-  document.getElementById('btn-lido-cancel').onclick = () => _closeModal('lido');
-  document.getElementById('btn-lido-submit').onclick = () => _doLogin('lido');
-
-  // ELB modal
-  document.getElementById('btn-elb-login').onclick = () => _openModal('elb');
-  document.getElementById('btn-elb-cancel').onclick = () => _closeModal('elb');
-  document.getElementById('btn-elb-submit').onclick = () => _doLogin('elb');
+  // 背景驗證 / 自動登入
+  verifySessions();
 }
 
-function _openModal(system) {
-  const creds = system === 'lido' ? storage.getLidoCredentials() : storage.getELBCredentials();
-  document.getElementById(`${system}-user`).value = creds.userId || '';
-  document.getElementById(`${system}-pass`).value = '';
-  document.getElementById(`${system}-err`).classList.add('hidden');
-  document.getElementById(`modal-${system}`).classList.remove('hidden');
-  setTimeout(() => {
-    const field = creds.userId ? `${system}-pass` : `${system}-user`;
-    document.getElementById(field)?.focus();
-  }, 60);
-}
-
-function _closeModal(system) {
-  document.getElementById(`modal-${system}`).classList.add('hidden');
-}
-
-async function _doLogin(system) {
-  const userId = document.getElementById(`${system}-user`).value.trim();
-  const pass   = document.getElementById(`${system}-pass`).value;
-  const errEl  = document.getElementById(`${system}-err`);
-  const btn    = document.getElementById(`btn-${system}-submit`);
-
-  if (!userId || !pass) {
-    errEl.textContent = '請填寫帳號與密碼';
-    errEl.classList.remove('hidden');
-    return;
-  }
-  errEl.classList.add('hidden');
-  btn.textContent = '登入中…'; btn.disabled = true;
+async function _autoConnect(system) {
   store.setAuth(system, { status: 'connecting' });
-
   try {
-    const fn = system === 'lido' ? lidoLogin : elbLogin;
-    const token = await fn(userId, pass);
-    if (system === 'lido') storage.saveLidoSession(userId, pass, token);
-    else                   storage.saveELBSession(userId, pass, token);
-    store.setAuth(system, { token, userId, status: 'ok' });
-    _closeModal(system);
-    showToast(`✅ ${system.toUpperCase()} 登入成功`);
+    if (system === 'lido') {
+      const { lidoLogin: login } = await import('../services/api.js');
+      const token = await login();
+      storage.saveLidoToken(token);
+      store.setAuth('lido', { token, status: 'ok' });
+    } else {
+      const token = await elbLogin();
+      storage.saveELBToken(token);
+      store.setAuth('elb', { token, status: 'ok' });
+    }
+    showToast(`✅ ${system.toUpperCase()} 已重新連線`);
   } catch (e) {
-    errEl.textContent = e.message;
-    errEl.classList.remove('hidden');
     store.setAuth(system, { status: 'error' });
-  } finally {
-    btn.textContent = '登入'; btn.disabled = false;
+    showToast(`❌ ${system.toUpperCase()} 連線失敗：${e.message}`);
   }
 }
 
@@ -303,10 +223,6 @@ function _applyStyles() {
     .conn-name   { font-size: 14px; font-weight: 700; }
     .conn-status { font-size: 12px; color: var(--text2); margin-top: 1px; }
 
-    .search-row {
-      display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
-    }
-
     .pirep-group { margin-bottom: 12px; }
     .pirep-group:last-child { margin-bottom: 0; }
     .pirep-cat {
@@ -325,4 +241,3 @@ function _applyStyles() {
   `;
   document.head.appendChild(s);
 }
-

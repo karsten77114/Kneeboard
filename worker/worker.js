@@ -880,15 +880,14 @@ async function handleRequest(request, env) {
   }
 
   try {
-    // POST /auth/login — 使用者登入
+    // POST /auth/login — 自動登入（帳密由 Worker secrets 提供）
     if (url.pathname === '/auth/login' && request.method === 'POST') {
-      const body = await request.json();
-      const userId = body.userId || env.LIDO_USER_ID;
-      const password = body.password || env.LIDO_PASSWORD;
+      const userId = env.LIDO_USER;
+      const password = env.LIDO_PASS;
 
       if (!userId || !password) {
-        return new Response(JSON.stringify({ error: 'Missing credentials' }), {
-          status: 400, headers: { ...headers, 'Content-Type': 'application/json' }
+        return new Response(JSON.stringify({ error: 'LIDO_USER / LIDO_PASS 尚未設定於 Worker secrets' }), {
+          status: 500, headers: { ...headers, 'Content-Type': 'application/json' }
         });
       }
 
@@ -1408,12 +1407,13 @@ async function handleRequest(request, env) {
 
     // ── ELB ──────────────────────────────────────────────────────────
 
-    // POST /auth/elb — 代理 ELB HTTP 登入，回傳 session cookie 作為 token
+    // POST /auth/elb — 自動登入（帳密由 Worker secrets 提供）
     if (url.pathname === '/auth/elb' && request.method === 'POST') {
-      const { userId, password } = await request.json();
+      const userId = env.ELB_USER;
+      const password = env.ELB_PASS;
       if (!userId || !password) {
-        return new Response(JSON.stringify({ error: 'Missing credentials' }), {
-          status: 400, headers: { ...headers, 'Content-Type': 'application/json' }
+        return new Response(JSON.stringify({ error: 'ELB_USER / ELB_PASS 尚未設定於 Worker secrets' }), {
+          status: 500, headers: { ...headers, 'Content-Type': 'application/json' }
         });
       }
       try {
@@ -1874,6 +1874,269 @@ async function handleRequest(request, env) {
       return new Response(JSON.stringify({ ok: true }), {
         headers: { ...headers, 'Content-Type': 'application/json' },
       });
+    }
+
+    // ── GET /api/track?icao24=8991d5&time=1748000000 ──────────────────
+    // OpenSky Network proxy — OAuth2 Client Credentials
+    if (url.pathname === '/api/track' && request.method === 'GET') {
+      const icao24 = (url.searchParams.get('icao24') || '').toLowerCase().trim();
+      const time   = url.searchParams.get('time');
+      if (!icao24 || !time) {
+        return new Response(JSON.stringify({ error: 'icao24 and time are required' }), {
+          status: 400, headers: { ...headers, 'Content-Type': 'application/json' },
+        });
+      }
+
+      // 取得 OAuth2 Bearer Token（使用 KV 快取，30 分鐘內不重新取得）
+      let bearerToken = null;
+      if (env.OPENSKY_CLIENT_ID && env.OPENSKY_CLIENT_SECRET) {
+        try {
+          const cached = await env.NOTICES_KV.get('opensky_token_v1', 'json');
+          if (cached && cached.expires > Date.now() / 1000 + 60) {
+            bearerToken = cached.token;
+          } else {
+            const tokenResp = await fetch(
+              'https://auth.opensky-network.org/auth/realms/opensky-network/protocol/openid-connect/token',
+              {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: `grant_type=client_credentials&client_id=${encodeURIComponent(env.OPENSKY_CLIENT_ID)}&client_secret=${encodeURIComponent(env.OPENSKY_CLIENT_SECRET)}`,
+              }
+            );
+            if (tokenResp.ok) {
+              const tokenData = await tokenResp.json();
+              bearerToken = tokenData.access_token;
+              await env.NOTICES_KV.put('opensky_token_v1',
+                JSON.stringify({ token: bearerToken, expires: Date.now() / 1000 + tokenData.expires_in }),
+                { expirationTtl: tokenData.expires_in }
+              );
+            }
+          }
+        } catch (e) {
+          console.warn('OpenSky token fetch failed:', e.message);
+        }
+      }
+
+      const osUrl = `https://opensky-network.org/api/tracks/all?icao24=${icao24}&time=${time}`;
+      const osHeaders = { 'Accept': 'application/json' };
+      if (bearerToken) osHeaders['Authorization'] = `Bearer ${bearerToken}`;
+
+      const osResp = await fetch(osUrl, { headers: osHeaders });
+      const body = await osResp.text();
+      return new Response(body, {
+        status: osResp.status,
+        headers: { ...headers, 'Content-Type': 'application/json' },
+      });
+    }
+
+    // ── GET /api/track/fr24?reg=B-58207&date=2026-05-26&from=TPE&to=CGK ─
+    // Proxy to FR24 flight-playback API; returns {track:[{la,lo,a,t,s},...]} or {error}
+    if (url.pathname === '/api/track/fr24' && request.method === 'GET') {
+      const reg  = url.searchParams.get('reg')  || '';
+      const date = url.searchParams.get('date') || '';  // YYYY-MM-DD
+      const from = url.searchParams.get('from') || '';
+      const to   = url.searchParams.get('to')   || '';
+      const fn   = (url.searchParams.get('fn')  || '').toUpperCase().replace(/\s/g, ''); // e.g. JX835
+
+      if (!reg || !date) {
+        return new Response(JSON.stringify({ error: 'missing reg or date' }), {
+          status: 400, headers: { ...headers, 'Content-Type': 'application/json' },
+        });
+      }
+
+      // KV cache key — v2: include from/to so different legs of same aircraft same day get own cache
+      const cacheKey = `fr24_track_v2:${reg.toUpperCase()}:${date}:${from.toUpperCase()}-${to.toUpperCase()}`;
+      if (env.NOTICES_KV) {
+        const cached = await env.NOTICES_KV.get(cacheKey, 'text');
+        if (cached) {
+          return new Response(cached, { headers: { ...headers, 'Content-Type': 'application/json' } });
+        }
+      }
+
+      const fr24Headers = {
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+        'Accept': 'application/json, text/plain, */*',
+        'Accept-Language': 'en-US,en;q=0.9',
+        'Origin': 'https://www.flightradar24.com',
+        'Referer': 'https://www.flightradar24.com/',
+      };
+
+      try {
+        // Step 1: get flight list for this registration (limit=50 to cover aircraft flying 3-4 legs/day for 2 weeks)
+        const listUrl = `https://api.flightradar24.com/common/v1/flight/list.json?query=${encodeURIComponent(reg)}&fetchBy=reg&page=1&limit=50`;
+        const listResp = await fetch(listUrl, {
+          headers: fr24Headers,
+          signal: AbortSignal.timeout(12000),
+        });
+
+        if (!listResp.ok) {
+          return new Response(JSON.stringify({ error: 'fr24_blocked', status: listResp.status }), {
+            headers: { ...headers, 'Content-Type': 'application/json' },
+          });
+        }
+
+        const listData  = await listResp.json();
+        const flightMap = listData?.result?.response?.data || {};
+        const flights   = Object.values(flightMap);
+
+        // Find flight matching date (UTC-based, allow ±6h per side for timezone tolerance)
+        const [y, m, d] = date.split('-').map(Number);
+        const dayStart  = Date.UTC(y, m - 1, d, 0, 0, 0) / 1000 - 21600;   // -6h
+        const dayEnd    = Date.UTC(y, m - 1, d, 23, 59, 59) / 1000 + 21600; // +6h
+
+        const candidates = flights.filter(fl => {
+          const dep = fl.time?.real?.departure || fl.time?.scheduled?.departure || 0;
+          return dep >= dayStart && dep <= dayEnd;
+        });
+
+        // Priority 1: match by flight number / callsign (most reliable)
+        let flight = null;
+        if (fn && candidates.length > 0) {
+          const byCallsign = candidates.find(fl => {
+            const cs = (fl.identification?.callsign || '').toUpperCase().replace(/\s/g, '');
+            const num = (fl.identification?.number?.default || '').toUpperCase().replace(/\s/g, '');
+            return cs === fn || num === fn;
+          });
+          if (byCallsign) flight = byCallsign;
+        }
+
+        // Priority 2: match by from/to IATA airport codes
+        if (!flight && from && to && candidates.length > 0) {
+          const byAirport = candidates.find(fl =>
+            fl.airport?.origin?.code?.iata      === from.toUpperCase() &&
+            fl.airport?.destination?.code?.iata === to.toUpperCase()
+          );
+          if (byAirport) flight = byAirport;
+        }
+
+        // Priority 3: only fallback to first candidate if there's exactly one match
+        if (!flight && candidates.length === 1) flight = candidates[0];
+
+        if (!flight?.identification?.id) {
+          return new Response(JSON.stringify({ error: 'no_flight', date, reg }), {
+            headers: { ...headers, 'Content-Type': 'application/json' },
+          });
+        }
+
+        const flightId = flight.identification.id;
+        const depTime  = flight.time?.real?.departure || flight.time?.scheduled?.departure || (dayStart + 43200);
+
+        // Step 2: get playback track
+        const pbUrl = `https://api.flightradar24.com/common/v1/flight-playback.json?flightId=${flightId}&timestamp=${depTime}`;
+        const pbResp = await fetch(pbUrl, {
+          headers: fr24Headers,
+          signal: AbortSignal.timeout(15000),
+        });
+
+        if (!pbResp.ok) {
+          return new Response(JSON.stringify({ error: 'fr24_playback_blocked', status: pbResp.status }), {
+            headers: { ...headers, 'Content-Type': 'application/json' },
+          });
+        }
+
+        const pbData   = await pbResp.json();
+        const rawTrack = pbData?.result?.response?.data?.flight?.track || [];
+
+        // Convert to logbook track format
+        const track = rawTrack.map(p => ({
+          t:  p.timestamp,
+          la: parseFloat((p.latitude  || 0).toFixed(4)),
+          lo: parseFloat((p.longitude || 0).toFixed(4)),
+          a:  p.altitude?.feet    || 0,
+          s:  p.speed?.kts        || 0,
+        })).filter(p => p.la !== 0 || p.lo !== 0);
+
+        const result = JSON.stringify({ track, flightId, reg, date });
+
+        // Cache for 7 days (completed flights don't change)
+        if (env.NOTICES_KV && track.length > 0) {
+          await env.NOTICES_KV.put(cacheKey, result, { expirationTtl: 7 * 86400 });
+        }
+
+        return new Response(result, { headers: { ...headers, 'Content-Type': 'application/json' } });
+
+      } catch (e) {
+        return new Response(JSON.stringify({ error: 'fr24_exception', message: e.message }), {
+          headers: { ...headers, 'Content-Type': 'application/json' },
+        });
+      }
+    }
+
+    // ── GET /api/airport?iata=TPE ─────────────────────────────────────
+    // Airport info lookup: name, city, country, lat/lon
+    // KV-cached indefinitely (airport data is stable)
+    if (url.pathname === '/api/airport' && request.method === 'GET') {
+      const iata = (url.searchParams.get('iata') || '').toUpperCase().trim();
+      if (!iata || iata.length !== 3) {
+        return new Response(JSON.stringify({ error: 'valid 3-letter IATA code required' }), {
+          status: 400, headers: { ...headers, 'Content-Type': 'application/json' },
+        });
+      }
+
+      // 1. KV cache hit
+      const cacheKey = `airport_iata_v1:${iata}`;
+      if (env.NOTICES_KV) {
+        const cached = await env.NOTICES_KV.get(cacheKey, 'json');
+        if (cached) {
+          return new Response(JSON.stringify(cached), {
+            headers: { ...headers, 'Content-Type': 'application/json' },
+          });
+        }
+      }
+
+      // 2. AeroDataBox lookup
+      if (!env.RAPIDAPI_KEY) {
+        return new Response(JSON.stringify({ error: 'no API key configured' }), {
+          status: 503, headers: { ...headers, 'Content-Type': 'application/json' },
+        });
+      }
+      try {
+        const adbxUrl  = `https://aerodatabox.p.rapidapi.com/airports/iata/${iata}`;
+        const adbxResp = await fetch(adbxUrl, {
+          headers: {
+            'x-rapidapi-key':  env.RAPIDAPI_KEY,
+            'x-rapidapi-host': 'aerodatabox.p.rapidapi.com',
+          },
+          signal: AbortSignal.timeout(10000),
+        });
+
+        if (adbxResp.status === 404) {
+          return new Response(JSON.stringify({ error: 'airport not found' }), {
+            status: 404, headers: { ...headers, 'Content-Type': 'application/json' },
+          });
+        }
+        if (adbxResp.status === 429) {
+          return new Response(JSON.stringify({ error: 'AeroDataBox rate limit exceeded' }), {
+            status: 429, headers: { ...headers, 'Content-Type': 'application/json' },
+          });
+        }
+        if (!adbxResp.ok) throw new Error(`AeroDataBox error ${adbxResp.status}`);
+
+        const data = await adbxResp.json();
+        // AeroDataBox shape: { icao, iata, fullName, municipalityName, location:{lat,lon}, countryCode }
+        const result = {
+          iata:    data.iata    || iata,
+          icao:    data.icao    || '',
+          name:    data.fullName || data.name || iata,
+          city:    data.municipalityName || '',
+          country: data.countryCode || '',
+          lat:     data.location?.lat ?? null,
+          lon:     data.location?.lon ?? null,
+        };
+
+        // Cache permanently in KV (airport coords don't change)
+        if (env.NOTICES_KV && result.lat != null) {
+          await env.NOTICES_KV.put(cacheKey, JSON.stringify(result));
+        }
+
+        return new Response(JSON.stringify(result), {
+          headers: { ...headers, 'Content-Type': 'application/json' },
+        });
+      } catch (e) {
+        return new Response(JSON.stringify({ error: e.message }), {
+          status: 500, headers: { ...headers, 'Content-Type': 'application/json' },
+        });
+      }
     }
 
     return new Response(JSON.stringify({ error: 'Not found', routes: ['/auth/login', '/api/briefing'] }), {

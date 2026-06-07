@@ -2,13 +2,11 @@ name = "jx-briefing"
 main = "worker.js"
 compatibility_date = "2024-01-01"
 
-[vars]
-LIDO_USER_ID = "2317073"
-
-# Secrets set via: wrangler secret put LIDO_PASSWORD
-# Secrets set via: wrangler secret put ELB_PASSWORD
-# Secrets set via: wrangler secret put GEMINI_API_KEY
-# Secrets set via: wrangler secret put UPLOAD_TOKEN    ← 自訂一組密碼，iOS Shortcut 帶入
+# Secrets (wrangler secret put):
+#   LIDO_USER, LIDO_PASS   — LIDO 自動登入
+#   ELB_USER,  ELB_PASS    — ELB 自動登入
+#   GEMINI_API_KEY          — Gemini AI
+#   UPLOAD_TOKEN            — iOS Shortcut 上傳憑證
 
 [[kv_namespaces]]
 binding = "NOTICES_KV"
