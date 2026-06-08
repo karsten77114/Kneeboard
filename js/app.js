@@ -1,17 +1,18 @@
 import store from './store.js';
 import * as Home       from './views/home.js';
 import * as FlightCrew from './views/flightcrew.js';
-import * as Roster     from './views/roster.js';
+import * as Roster     from './views/roster.js';  // 保留 storage helpers（savePairing / getRoster）
 import * as PA         from './views/pa.js';
 import * as Tools      from './views/tools.js';
 import { fetchBriefing, ensureLido, preloadMetarForFlight, preloadElbForFlight } from './services/api.js';
 import { showToast, todayStr, toICAO } from './utils.js';
 import storage from './services/storage.js';
 
+// Roster tab 已移至 Logbook（個人資料集中管理）
+// KneeBoard 僅保留 #roster?fn=XXX&date=YYYYMMDD 深連結機制供 Logbook 跳轉使用
 const TABS = [
   { id: 'home',       label: 'Home',         icon: '🏠', mod: Home       },
   { id: 'flightcrew', label: 'Flight Crew',  icon: '✈️', mod: FlightCrew },
-  { id: 'roster',     label: 'Roster',       icon: '📅', mod: Roster     },
   { id: 'pa',         label: 'PA',           icon: '🎙', mod: PA         },
   { id: 'tools',      label: 'Tools',        icon: '🔧', mod: Tools      },
 ];
@@ -102,7 +103,7 @@ function _handleRosterHash() {
     if (inp) inp.value = fn;
     _renderSearchBar();
     await _doSbSearch();
-    setTimeout(() => { if (store.flight) _switchTab('flightcrew'); }, 500);
+    // 停在 home page — 使用者可先看公告欄，再自行切換 tab
   }, 800);
 }
 
