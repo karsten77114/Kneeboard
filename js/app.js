@@ -1,6 +1,7 @@
 import store from './store.js';
 import * as Home       from './views/home.js';
 import * as FlightCrew from './views/flightcrew.js';
+import * as Roster     from './views/roster.js';
 import * as PA         from './views/pa.js';
 import * as Tools      from './views/tools.js';
 import { fetchBriefing, ensureLido, preloadMetarForFlight, preloadElbForFlight } from './services/api.js';
@@ -10,6 +11,7 @@ import storage from './services/storage.js';
 const TABS = [
   { id: 'home',       label: 'Home',         icon: '🏠', mod: Home       },
   { id: 'flightcrew', label: 'Flight Crew',  icon: '✈️', mod: FlightCrew },
+  { id: 'roster',     label: 'Roster',       icon: '📅', mod: Roster     },
   { id: 'pa',         label: 'PA',           icon: '🎙', mod: PA         },
   { id: 'tools',      label: 'Tools',        icon: '🔧', mod: Tools      },
 ];
@@ -57,29 +59,65 @@ function init() {
 function _handleRosterHash() {
   const hash = location.hash;
   if (!hash.startsWith('#roster?')) return;
-  const p    = new URLSearchParams(hash.slice('#roster?'.length));
+  const p = new URLSearchParams(hash.slice('#roster?'.length));
+
+  // Clear hash immediately (avoids re-trigger on SW_UPDATED reload)
+  history.replaceState(null, '', location.pathname + location.search);
+
+  // ── Full pairing JSON from iOS Shortcut: #roster?data=BASE64 ──
+  const dataB64 = p.get('data');
+  if (dataB64) {
+    try {
+      const pairing = JSON.parse(atob(dataB64));
+      if (pairing?.date && pairing?.legs?.length) {
+        Roster.savePairing(pairing);
+        showToast(`✅ ${pairing.date.slice(4,6)}/${pairing.date.slice(6,8)} 班表已匯入`);
+        _switchTab('roster');
+        // Also auto-load the first leg's briefing if it's today
+        if (Roster.getRoster().find(r => r.date === pairing.date)) {
+          const firstLeg = pairing.legs[0];
+          if (firstLeg) {
+            setTimeout(() => {
+              window.dispatchEvent(new CustomEvent('kb-load-flight', {
+                detail: { fn: firstLeg.flightNumber.replace(/^JX/i, ''), date: pairing.date }
+              }));
+            }, 600);
+          }
+        }
+        return;
+      }
+    } catch (_) {}
+    showToast('⚠ 無法解析班表資料');
+    return;
+  }
+
+  // ── Simple fn+date from bookmarklet button: #roster?fn=703&date=20260608 ──
   const fn   = p.get('fn');
   const date = p.get('date');
   if (!fn || !date) return;
 
-  // Pre-fill search bar vars
   _sbDate = date;
-
-  // Clear hash without reloading (avoids loop on SW_UPDATED)
-  history.replaceState(null, '', location.pathname + location.search);
-
-  // Auto-search: wait briefly for auth init, then trigger
   setTimeout(async () => {
     const inp = searchbarEl?.querySelector('#sb-flt-input');
     if (inp) inp.value = fn;
     _renderSearchBar();
     await _doSbSearch();
-    // After briefing loads, switch to Flight Crew tab
-    setTimeout(() => {
-      if (store.flight) _switchTab('flightcrew');
-    }, 500);
+    setTimeout(() => { if (store.flight) _switchTab('flightcrew'); }, 500);
   }, 800);
 }
+
+// ── Cross-view: load flight from Roster tab ───────────────────────
+
+window.addEventListener('kb-load-flight', async (e) => {
+  const { fn, date } = e.detail;
+  _sbDate = date;
+  const inp = searchbarEl?.querySelector('#sb-flt-input');
+  if (inp) inp.value = fn;
+  _renderSearchBar();
+  showToast(`Loading JX${fn}…`);
+  await _doSbSearch();
+  setTimeout(() => { if (store.flight) _switchTab('flightcrew'); }, 400);
+});
 
 // ── UTC Clock ─────────────────────────────────────────────────────
 
