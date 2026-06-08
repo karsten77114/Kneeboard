@@ -49,6 +49,36 @@ function init() {
       }
     });
   }
+
+  // Roster import via hash: #roster?fn=703&date=20260608
+  _handleRosterHash();
+}
+
+function _handleRosterHash() {
+  const hash = location.hash;
+  if (!hash.startsWith('#roster?')) return;
+  const p    = new URLSearchParams(hash.slice('#roster?'.length));
+  const fn   = p.get('fn');
+  const date = p.get('date');
+  if (!fn || !date) return;
+
+  // Pre-fill search bar vars
+  _sbDate = date;
+
+  // Clear hash without reloading (avoids loop on SW_UPDATED)
+  history.replaceState(null, '', location.pathname + location.search);
+
+  // Auto-search: wait briefly for auth init, then trigger
+  setTimeout(async () => {
+    const inp = searchbarEl?.querySelector('#sb-flt-input');
+    if (inp) inp.value = fn;
+    _renderSearchBar();
+    await _doSbSearch();
+    // After briefing loads, switch to Flight Crew tab
+    setTimeout(() => {
+      if (store.flight) _switchTab('flightcrew');
+    }, 500);
+  }, 800);
 }
 
 // ── UTC Clock ─────────────────────────────────────────────────────
