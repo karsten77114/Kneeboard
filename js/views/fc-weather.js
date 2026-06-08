@@ -574,13 +574,13 @@ function _renderChart(panel) {
     return;
   }
 
-  const { token } = storage.getLidoCredentials();
+  const token = storage.getLidoToken();
   if (!token) {
     panel.innerHTML = `
       <div class="state-screen" style="min-height:30vh">
         <div class="state-icon">🔐</div>
-        <div class="state-title">LIDO 未登入</div>
-        <div class="state-sub">請先在首頁登入 LIDO。</div>
+        <div class="state-title">LIDO 未連線</div>
+        <div class="state-sub">請等待首頁自動連線後再試，或點「重新連線」。</div>
       </div>`;
     return;
   }

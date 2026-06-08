@@ -16,6 +16,12 @@ const _IATA2ICAO = {
   BKK:'VTBS', DMK:'VTBD', KUL:'WMKK', SIN:'WSSS', SGN:'VVTS',
   HAN:'VVNB', HKG:'VHHH', MNL:'RPLL', CEB:'RPVM', DPS:'WADD',
   CGK:'WIII', SUB:'WARR', MES:'WIMM',
+  // Vietnam
+  DAD:'VVDN', CXR:'VVCR', PQC:'VVPQ', VCA:'VVCT', HPH:'VVCI', VDO:'VVVD',
+  // Philippines / Indonesia
+  ILO:'RPVI', KLO:'RPVK', MNL:'RPLL', BXU:'RPME', GEN:'RPMR',
+  // SE Asia additional
+  PEN:'WMKP', LGK:'WMKL', BKI:'WBKK', KCH:'WBGG', MYY:'WBGR',
   // China / HK / Macau
   PEK:'ZBAA', PKX:'ZBAD', PVG:'ZSPD', SHA:'ZSSS', CAN:'ZGGG',
   CTU:'ZUUU', HKG:'VHHH', MFM:'VMMC',
