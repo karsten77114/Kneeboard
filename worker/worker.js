@@ -840,8 +840,7 @@ function parseATSRoute(txt) {
 
 const PEGASYS_BASE      = 'https://jxcrew.starlux-airlines.com';
 const PEGASYS_LOGIN_URL = `${PEGASYS_BASE}/jxcrew/auth/crew/login`;
-// socket.io 4.x + engine.io 4.x, direct WebSocket (no polling)
-const PEGASYS_WS_URL    = 'wss://jxcrew.starlux-airlines.com/jxcrew/api/socket.io/?EIO=4&transport=websocket';
+const PEGASYS_SIO       = `${PEGASYS_BASE}/jxcrew/api/socket.io`;
 
 function _uuid4() {
   return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
@@ -867,68 +866,106 @@ async function _pegasysLogin(employeeId, password) {
   if (resp.status === 401) { const e = new Error('invalid_credentials'); e.httpStatus = 401; throw e; }
   if (resp.status === 400) { const e = new Error('bad_request');          e.httpStatus = 400; throw e; }
   if (!resp.ok)            { const e = new Error(`login_error_${resp.status}`); e.httpStatus = 502; throw e; }
-  const jwt = (await resp.text()).trim();
-  if (!jwt.startsWith('eyJ')) { const e = new Error('login_no_token'); e.httpStatus = 502; throw e; }
-  return jwt;
+
+  const body = (await resp.text()).trim();
+
+  // Case 1: plain JWT string
+  if (body.startsWith('eyJ')) return body;
+
+  // Case 2: JSON object containing the token
+  try {
+    const json = JSON.parse(body);
+    const token = json.token || json.access_token || json.accessToken
+                || json.jwt  || json.id_token     || json.idToken;
+    if (token && typeof token === 'string' && token.startsWith('eyJ')) return token;
+  } catch (_) {}
+
+  // Neither — surface the actual body for debugging
+  const preview = body.slice(0, 120).replace(/[\r\n]/g, ' ');
+  const e = new Error(`login_no_token: ${preview}`);
+  e.httpStatus = 502;
+  throw e;
 }
 
-// Returns array of {event, data} objects received during the WS session.
-// Resolves after first roster/pairing event or after timeout.
-async function _pegasysWsRoster(jwt, employeeId) {
-  const wsResp = await fetch(PEGASYS_WS_URL, {
-    headers: { 'Upgrade': 'websocket' },
+// Socket.io HTTP long-polling roster fetch (more reliable than WS from CF Workers)
+// Returns { events: [{event,data}], sid, debugInfo }
+async function _pegasysPollingRoster(jwt, employeeId) {
+  const hdrs = {
+    'Origin':  PEGASYS_BASE,
+    'Referer': PEGASYS_BASE + '/',
+    'Accept':  '*/*',
+  };
+
+  // Step 1 — Engine.io handshake → get session id
+  const hs = await fetch(`${PEGASYS_SIO}/?EIO=4&transport=polling`, { headers: hdrs });
+  if (!hs.ok) throw new Error(`sio_hs_${hs.status}`);
+  const hsBody = await hs.text();
+
+  // EIO=4 response: "0{...json...}" — leading '0' is OPEN packet type
+  let sid;
+  try {
+    const raw = hsBody.startsWith('0') ? hsBody.slice(1) : hsBody;
+    sid = JSON.parse(raw).sid;
+  } catch (_) {}
+  if (!sid) throw new Error(`sio_no_sid: ${hsBody.slice(0, 80)}`);
+
+  // Step 2 — Socket.io CONNECT with JWT auth token
+  const connectBody = `40${JSON.stringify({ auth: { token: jwt } })}`;
+  await fetch(`${PEGASYS_SIO}/?EIO=4&transport=polling&sid=${encodeURIComponent(sid)}`, {
+    method: 'POST',
+    headers: { ...hdrs, 'Content-Type': 'text/plain;charset=UTF-8' },
+    body: connectBody,
   });
-  if (wsResp.status !== 101) throw new Error(`ws_connect_${wsResp.status}`);
 
-  const ws = wsResp.webSocket;
-  ws.accept();
+  // Step 3 — Poll once to drain CONNECT ack / detect auth errors
+  const ackResp = await fetch(`${PEGASYS_SIO}/?EIO=4&transport=polling&sid=${encodeURIComponent(sid)}`, { headers: hdrs });
+  const ackBody = await ackResp.text();
 
+  // '44' = socket.io CONNECT_ERROR
+  if (ackBody.includes('44{') || ackBody.startsWith('44')) {
+    throw new Error(`sio_auth_fail: ${ackBody.slice(0, 120)}`);
+  }
+
+  // Step 4 — Trigger roster subscription via REST (server will queue data for our session)
+  fetch(`${PEGASYS_BASE}/jxcrew/api/roster/${employeeId}`, {
+    headers: { 'Authorization': `Bearer ${jwt}`, ...hdrs },
+  }).catch(() => {});
+
+  // Step 5 — Poll up to 4 times for roster data events
   const events = [];
-  let connected = false;
+  for (let i = 0; i < 4; i++) {
+    const pollResp = await fetch(`${PEGASYS_SIO}/?EIO=4&transport=polling&sid=${encodeURIComponent(sid)}`, { headers: hdrs });
+    if (!pollResp.ok) break;
+    const text = await pollResp.text();
 
-  return new Promise((resolve) => {
-    const done = () => { try { ws.close(); } catch (_) {} resolve(events); };
-    const timer = setTimeout(done, 10000);
-
-    ws.addEventListener('message', (evt) => {
-      const msg = typeof evt.data === 'string' ? evt.data : '';
-      if (!msg) return;
-
-      // Engine.io OPEN (packet type '0') → send socket.io CONNECT with JWT auth
-      if (msg.charAt(0) === '0' && !connected) {
-        ws.send('40' + JSON.stringify({ auth: { token: jwt } }));
-        return;
-      }
-      // Engine.io PING → PONG
-      if (msg === '2') { ws.send('3'); return; }
-      // Socket.io CONNECT ack ('40' prefix but not just '0')
-      if (msg.startsWith('40') && msg.length > 2 && !connected) {
-        connected = true;
-        // Trigger subscription — server pushes roster data to this WS session
-        fetch(`${PEGASYS_BASE}/jxcrew/api/roster/${employeeId}`, {
-          headers: { 'Authorization': `Bearer ${jwt}` },
-        }).catch(() => {});
-        return;
-      }
-      // Socket.io EVENT (packet type '42')
-      if (msg.startsWith('42')) {
+    // EIO=4: multiple packets separated by record separator \x1e
+    for (const pkt of text.split('\x1e')) {
+      if (pkt.startsWith('42')) {
         try {
-          const parsed = JSON.parse(msg.slice(2));
-          const [event, data] = Array.isArray(parsed) ? parsed : ['unknown', parsed];
-          events.push({ event, data });
-          const ev = String(event).toLowerCase();
-          // Resolve early if we got what looks like roster data
-          if (ev.includes('roster') || ev.includes('pairing') || ev.includes('duty') || ev.includes('allocation')) {
-            clearTimeout(timer);
-            done();
+          const parsed = JSON.parse(pkt.slice(2));
+          if (Array.isArray(parsed)) {
+            const [event, data] = parsed;
+            events.push({ event, data });
+            const ev = String(event).toLowerCase();
+            if (ev.includes('roster') || ev.includes('pairing') || ev.includes('duty') || ev.includes('allocation')) {
+              return { events, sid, debugInfo: ackBody };
+            }
           }
         } catch (_) {}
       }
-    });
+      // EIO PING → respond PONG so session stays alive
+      if (pkt === '2') {
+        fetch(`${PEGASYS_SIO}/?EIO=4&transport=polling&sid=${encodeURIComponent(sid)}`, {
+          method: 'POST',
+          headers: { ...hdrs, 'Content-Type': 'text/plain;charset=UTF-8' },
+          body: '3',
+        }).catch(() => {});
+      }
+    }
+    if (events.length > 0) break;
+  }
 
-    ws.addEventListener('close', () => { clearTimeout(timer); resolve(events); });
-    ws.addEventListener('error', () => { clearTimeout(timer); resolve(events); });
-  });
+  return { events, sid, debugInfo: ackBody };
 }
 
 // Attempt to parse WS events into KneeBoard pairing format.
@@ -1068,17 +1105,19 @@ async function handleRequest(request, env) {
         });
       }
 
-      // 取 OFP / ATS / APLI 文字
+      // 取 OFP / ATS / APLI / NOTAM 文字
       // APLI = Airport List — 包含所有天氣所需機場（格式：ICAO4+IATA3+空格+[Y/N]+日期）
       // 例：WMKKKUL     Y13MAY2026... / RCKHKHH     N13MAY2026...
-      const ofpFileId  = parsed.fileIds?.OFP;
-      const atsFileId  = parsed.fileIds?.ATS;
-      const apliFileId = parsed.fileIds?.APLI;
+      const ofpFileId   = parsed.fileIds?.OFP;
+      const atsFileId   = parsed.fileIds?.ATS;
+      const apliFileId  = parsed.fileIds?.APLI;
+      const notamFileId = parsed.fileIds?.NOTAM;
 
-      const [ofpText, atsText, apliText] = await Promise.all([
-        ofpFileId  ? fetchDocument(legId, ofpFileId,  buildLidoHeaders(session, 'GetDocOFP'),  true) : Promise.resolve(null),
-        atsFileId  ? fetchDocument(legId, atsFileId,  buildLidoHeaders(session, 'GetDocATS'),  true) : Promise.resolve(null),
-        apliFileId ? fetchDocument(legId, apliFileId, buildLidoHeaders(session, 'GetDocAPLI'), true) : Promise.resolve(null),
+      const [ofpText, atsText, apliText, notamText] = await Promise.all([
+        ofpFileId   ? fetchDocument(legId, ofpFileId,   buildLidoHeaders(session, 'GetDocOFP'),    true) : Promise.resolve(null),
+        atsFileId   ? fetchDocument(legId, atsFileId,   buildLidoHeaders(session, 'GetDocATS'),    true) : Promise.resolve(null),
+        apliFileId  ? fetchDocument(legId, apliFileId,  buildLidoHeaders(session, 'GetDocAPLI'),   true) : Promise.resolve(null),
+        notamFileId ? fetchDocument(legId, notamFileId, buildLidoHeaders(session, 'GetDocNOTAM'),  true) : Promise.resolve(null),
       ]);
 
       // 只做補充解析（STD local time 等 OFP 文字獨有的資訊）
@@ -1135,6 +1174,7 @@ async function handleRequest(request, env) {
         // OFP 文字解析補充
         ofp: { ...ofpExtra, flight: flightNum, dep: parsed.dep, dest: parsed.dest },
         wxAirports: allWxAirports,
+        notamText: notamText || null,
         raw: {
           ofpPreview:  ofpText  ? ofpText.substring(0, 800)  : null,
           apliPreview: apliText ? apliText.substring(0, 800) : null,
@@ -1382,8 +1422,9 @@ async function handleRequest(request, env) {
       const unmappedFiles = [];
       for (const catName of availableCategories) {
         if (mappedCats.has(catName)) continue;
-        // Skip text-only categories
+        // Skip text-only / XML data-feed categories (not viewable charts)
         if (['OFP','ATS','APLI','NOTAM','CREWINFO','RAIM'].includes(catName)) continue;
+        if (catName.endsWith('XML')) continue;   // APTDXML / ASPDXML / ATSXML / NOTAMXML / OFPXML / RAIMXML / UADXML 等
         const docs = parsed.allDocs[catName] || [];
         for (const doc of docs) {
           const label = (doc.label || doc.fileName || '').trim() || `${catName} ${doc.index + 1}`;
@@ -2281,25 +2322,28 @@ async function handleRequest(request, env) {
         }
       }
 
-      // Fetch roster via WebSocket
+      // Fetch roster via socket.io HTTP polling
       const rosterKey = `pegasys_roster_${employeeId}`;
-      let wsEvents = [], wsError = null;
+      let pollResult = null, pollError = null;
       try {
-        wsEvents = await _pegasysWsRoster(jwt, employeeId);
+        pollResult = await _pegasysPollingRoster(jwt, employeeId);
       } catch (e) {
-        wsError = e.message;
+        pollError = e.message;
       }
 
-      if (wsError && wsEvents.length === 0) {
-        // WS failed — try cached roster
+      const wsEvents = pollResult?.events || [];
+
+      if (pollError && wsEvents.length === 0) {
+        // Polling failed — try cached roster, return full error detail
         const cached = env.NOTICES_KV ? await env.NOTICES_KV.get(rosterKey, 'json') : null;
         if (cached) {
           return new Response(JSON.stringify({
-            ok: true, stale: true, cached_at: cached.ts, ws_error: wsError,
+            ok: true, stale: true, cached_at: cached.ts, ws_error: pollError,
             ws_events: cached.events || [], pairings: _parseRosterEvents(cached.events || []),
           }), { headers: { ...headers, 'Content-Type': 'application/json' } });
         }
-        return new Response(JSON.stringify({ error: 'ws_failed', detail: wsError }), {
+        // Return full error detail so client can display it
+        return new Response(JSON.stringify({ error: pollError, detail: pollError }), {
           status: 502, headers: { ...headers, 'Content-Type': 'application/json' }
         });
       }
@@ -2315,9 +2359,11 @@ async function handleRequest(request, env) {
       const pairings = _parseRosterEvents(wsEvents);
       return new Response(JSON.stringify({
         ok: true,
-        ws_events: wsEvents,   // raw events for debugging until we know the event names
+        ws_events: wsEvents,
         pairings,
-        debug: pairings.some(p => p._raw_event !== undefined),
+        debug: wsEvents.length > 0,
+        debugInfo: pollResult?.debugInfo,
+        sid: pollResult?.sid,
       }), { headers: { ...headers, 'Content-Type': 'application/json' } });
     }
 
