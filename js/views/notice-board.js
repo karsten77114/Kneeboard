@@ -45,7 +45,8 @@ function _saveRead() {
 
 // ── Backward-compat helpers ───────────────────────────────────────
 function _getSourceTag(n) {
-  if (n.source_tag) return n.source_tag;
+  // 只接受合法的 source_tag 值；Gemini 偶爾會把 app_notice 等 tag 誤填到 source_tag
+  if (n.source_tag && SOURCE_META[n.source_tag]) return n.source_tag;
   const src = (n.source || '').toLowerCase();
   if (src.includes('teams') || src.includes('line')) return 'message';
   if (src.includes('outlook') || src.includes('email') || src.includes('aviobook')) return 'email';
