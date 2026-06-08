@@ -836,6 +836,113 @@ function parseATSRoute(txt) {
   return lines.join(' ');
 }
 
+// ── PegaSys proxy helpers ─────────────────────────────────────────
+
+const PEGASYS_BASE      = 'https://jxcrew.starlux-airlines.com';
+const PEGASYS_LOGIN_URL = `${PEGASYS_BASE}/jxcrew/auth/crew/login`;
+// socket.io 4.x + engine.io 4.x, direct WebSocket (no polling)
+const PEGASYS_WS_URL    = 'wss://jxcrew.starlux-airlines.com/jxcrew/api/socket.io/?EIO=4&transport=websocket';
+
+function _uuid4() {
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+    const r = Math.random() * 16 | 0;
+    return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
+  });
+}
+
+function _jwtExpiry(token) {
+  try {
+    const seg = token.split('.')[1];
+    const pad = '='.repeat((4 - seg.length % 4) % 4);
+    return JSON.parse(atob(seg.replace(/-/g, '+').replace(/_/g, '/') + pad)).exp || 0;
+  } catch { return 0; }
+}
+
+async function _pegasysLogin(employeeId, password) {
+  const resp = await fetch(PEGASYS_LOGIN_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username: employeeId, password, nonce: _uuid4() }),
+  });
+  if (resp.status === 401) { const e = new Error('invalid_credentials'); e.httpStatus = 401; throw e; }
+  if (resp.status === 400) { const e = new Error('bad_request');          e.httpStatus = 400; throw e; }
+  if (!resp.ok)            { const e = new Error(`login_error_${resp.status}`); e.httpStatus = 502; throw e; }
+  const jwt = (await resp.text()).trim();
+  if (!jwt.startsWith('eyJ')) { const e = new Error('login_no_token'); e.httpStatus = 502; throw e; }
+  return jwt;
+}
+
+// Returns array of {event, data} objects received during the WS session.
+// Resolves after first roster/pairing event or after timeout.
+async function _pegasysWsRoster(jwt, employeeId) {
+  const wsResp = await fetch(PEGASYS_WS_URL, {
+    headers: { 'Upgrade': 'websocket' },
+  });
+  if (wsResp.status !== 101) throw new Error(`ws_connect_${wsResp.status}`);
+
+  const ws = wsResp.webSocket;
+  ws.accept();
+
+  const events = [];
+  let connected = false;
+
+  return new Promise((resolve) => {
+    const done = () => { try { ws.close(); } catch (_) {} resolve(events); };
+    const timer = setTimeout(done, 10000);
+
+    ws.addEventListener('message', (evt) => {
+      const msg = typeof evt.data === 'string' ? evt.data : '';
+      if (!msg) return;
+
+      // Engine.io OPEN (packet type '0') → send socket.io CONNECT with JWT auth
+      if (msg.charAt(0) === '0' && !connected) {
+        ws.send('40' + JSON.stringify({ auth: { token: jwt } }));
+        return;
+      }
+      // Engine.io PING → PONG
+      if (msg === '2') { ws.send('3'); return; }
+      // Socket.io CONNECT ack ('40' prefix but not just '0')
+      if (msg.startsWith('40') && msg.length > 2 && !connected) {
+        connected = true;
+        // Trigger subscription — server pushes roster data to this WS session
+        fetch(`${PEGASYS_BASE}/jxcrew/api/roster/${employeeId}`, {
+          headers: { 'Authorization': `Bearer ${jwt}` },
+        }).catch(() => {});
+        return;
+      }
+      // Socket.io EVENT (packet type '42')
+      if (msg.startsWith('42')) {
+        try {
+          const parsed = JSON.parse(msg.slice(2));
+          const [event, data] = Array.isArray(parsed) ? parsed : ['unknown', parsed];
+          events.push({ event, data });
+          const ev = String(event).toLowerCase();
+          // Resolve early if we got what looks like roster data
+          if (ev.includes('roster') || ev.includes('pairing') || ev.includes('duty') || ev.includes('allocation')) {
+            clearTimeout(timer);
+            done();
+          }
+        } catch (_) {}
+      }
+    });
+
+    ws.addEventListener('close', () => { clearTimeout(timer); resolve(events); });
+    ws.addEventListener('error', () => { clearTimeout(timer); resolve(events); });
+  });
+}
+
+// Attempt to parse WS events into KneeBoard pairing format.
+// Returns array (may be empty) or {_raw: events} if format unknown.
+function _parseRosterEvents(events) {
+  if (!events || events.length === 0) return [];
+  // Placeholder: until we see the actual event structure, return events tagged as raw
+  // Once we know the real event names + shape, update this function.
+  return events.map(({ event, data }) => ({
+    _raw_event: event,
+    _raw_data: data,
+  }));
+}
+
 // 主 Handler
 async function handleRequest(request, env) {
   const url = new URL(request.url);
@@ -2109,6 +2216,109 @@ async function handleRequest(request, env) {
           status: 500, headers: { ...headers, 'Content-Type': 'application/json' },
         });
       }
+    }
+
+    // ── POST /pegasys/auth — 驗證帳密，快速回應 ─────────────────────
+    if (url.pathname === '/pegasys/auth' && request.method === 'POST') {
+      let employeeId, password;
+      try {
+        const body = await request.json();
+        employeeId = String(body.employeeId || '').trim();
+        password   = String(body.password   || '').trim();
+      } catch {
+        return new Response(JSON.stringify({ error: 'invalid_json' }), {
+          status: 400, headers: { ...headers, 'Content-Type': 'application/json' }
+        });
+      }
+      if (!employeeId || !password) {
+        return new Response(JSON.stringify({ error: 'employeeId and password required' }), {
+          status: 400, headers: { ...headers, 'Content-Type': 'application/json' }
+        });
+      }
+      try {
+        const jwt = await _pegasysLogin(employeeId, password);
+        if (env.NOTICES_KV) await env.NOTICES_KV.put(`pegasys_jwt_${employeeId}`, jwt, { expirationTtl: 480 });
+        return new Response(JSON.stringify({ ok: true, employeeId }), {
+          headers: { ...headers, 'Content-Type': 'application/json' }
+        });
+      } catch (e) {
+        return new Response(JSON.stringify({ error: e.message }), {
+          status: e.httpStatus || 502, headers: { ...headers, 'Content-Type': 'application/json' }
+        });
+      }
+    }
+
+    // ── POST /pegasys/roster — 取得班表（login + WS fetch）──────────
+    if (url.pathname === '/pegasys/roster' && request.method === 'POST') {
+      let employeeId, password;
+      try {
+        const body = await request.json();
+        employeeId = String(body.employeeId || '').trim();
+        password   = String(body.password   || '').trim();
+      } catch {
+        return new Response(JSON.stringify({ error: 'invalid_json' }), {
+          status: 400, headers: { ...headers, 'Content-Type': 'application/json' }
+        });
+      }
+      if (!employeeId || !password) {
+        return new Response(JSON.stringify({ error: 'employeeId and password required' }), {
+          status: 400, headers: { ...headers, 'Content-Type': 'application/json' }
+        });
+      }
+
+      // Get or refresh JWT (use KV cache to avoid logging in on every request)
+      const jwtKey = `pegasys_jwt_${employeeId}`;
+      let jwt = env.NOTICES_KV ? await env.NOTICES_KV.get(jwtKey) : null;
+      const nowSec = Math.floor(Date.now() / 1000);
+      if (!jwt || _jwtExpiry(jwt) < nowSec + 60) {
+        try {
+          jwt = await _pegasysLogin(employeeId, password);
+          if (env.NOTICES_KV) await env.NOTICES_KV.put(jwtKey, jwt, { expirationTtl: 480 });
+        } catch (e) {
+          return new Response(JSON.stringify({ error: e.message }), {
+            status: e.httpStatus || 502, headers: { ...headers, 'Content-Type': 'application/json' }
+          });
+        }
+      }
+
+      // Fetch roster via WebSocket
+      const rosterKey = `pegasys_roster_${employeeId}`;
+      let wsEvents = [], wsError = null;
+      try {
+        wsEvents = await _pegasysWsRoster(jwt, employeeId);
+      } catch (e) {
+        wsError = e.message;
+      }
+
+      if (wsError && wsEvents.length === 0) {
+        // WS failed — try cached roster
+        const cached = env.NOTICES_KV ? await env.NOTICES_KV.get(rosterKey, 'json') : null;
+        if (cached) {
+          return new Response(JSON.stringify({
+            ok: true, stale: true, cached_at: cached.ts, ws_error: wsError,
+            ws_events: cached.events || [], pairings: _parseRosterEvents(cached.events || []),
+          }), { headers: { ...headers, 'Content-Type': 'application/json' } });
+        }
+        return new Response(JSON.stringify({ error: 'ws_failed', detail: wsError }), {
+          status: 502, headers: { ...headers, 'Content-Type': 'application/json' }
+        });
+      }
+
+      // Cache successful events
+      if (wsEvents.length > 0 && env.NOTICES_KV) {
+        await env.NOTICES_KV.put(rosterKey,
+          JSON.stringify({ ts: new Date().toISOString(), events: wsEvents }),
+          { expirationTtl: 21600 }
+        );
+      }
+
+      const pairings = _parseRosterEvents(wsEvents);
+      return new Response(JSON.stringify({
+        ok: true,
+        ws_events: wsEvents,   // raw events for debugging until we know the event names
+        pairings,
+        debug: pairings.some(p => p._raw_event !== undefined),
+      }), { headers: { ...headers, 'Content-Type': 'application/json' } });
     }
 
     return new Response(JSON.stringify({ error: 'Not found', routes: ['/auth/login', '/api/briefing'] }), {
