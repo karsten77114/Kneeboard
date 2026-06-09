@@ -984,11 +984,12 @@ function _renderSigwx(panel) {
 // Turbli
 // ══════════════════════════════════════════════════════════════════
 
-function _buildTurbliUrl(dep, dest) {
+function _buildTurbliUrl(dep, dest, flt, date) {
   if (!dep || !dest) return 'https://turbli.com';
-  // Turbli only shows forecasts within ~36h — always use today's UTC date
-  const today = new Date().toISOString().slice(0, 10);
-  return `https://turbli.com/${dep}/${dest}/${today}/`;
+  const day = date || new Date().toISOString().slice(0, 10);
+  // 帶上 JX-航班號，外部連結才會直接落在該航班頁（與 worker 抓的網址一致）
+  const fltSeg = flt ? `JX-${flt}/` : '';
+  return `https://turbli.com/${dep}/${dest}/${day}/${fltSeg}`;
 }
 
 async function _renderTurbli(panel) {
@@ -1000,7 +1001,7 @@ async function _renderTurbli(panel) {
   const destIata = toIATA(destRaw) || destRaw;
   const fltNo   = (b?.flightNumber || f?.flightNumber || '').replace(/^JX/i, '');
   const date    = new Date().toISOString().slice(0, 10);
-  const extUrl  = depIata && destIata ? _buildTurbliUrl(depIata, destIata) : 'https://turbli.com';
+  const extUrl  = depIata && destIata ? _buildTurbliUrl(depIata, destIata, fltNo, date) : 'https://turbli.com';
 
   if (!depIata || !destIata) {
     panel.innerHTML = `<div class="card"><div style="font-size:13px;color:var(--text3)">查詢航班後自動帶入亂流圖</div></div>`;

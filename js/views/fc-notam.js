@@ -373,10 +373,15 @@ function _splitNotams(text) {
 }
 
 function _parseOneNotam(id, text) {
-  const cat  = _classifyNotam(text);
-  const alt  = _parseAltitude(text);
-  const vld  = _parseValidity(text);
-  const { points, circles } = _extractCoords(text);
+  // 取本則「乾淨內文」：切掉尾端屬於「下一則」的置中段名標題與分隔線
+  // （LIDO 公告每則前面都有「段名 + ----」標題，會被吃進前一則尾巴，
+  //   尤其 VAA 火山段名會讓軍事 NOTAM 被誤判成火山）
+  const body = _notamBody(text);
+  const cat  = _classifyNotam(body);
+  const alt  = _parseAltitude(body);
+  const vld  = _parseValidity(body);
+  const { points, circles } = _extractCoords(body);
+  text = body;
 
   // Shape label
   let shapeLabel = '';
@@ -399,11 +404,30 @@ function _parseOneNotam(id, text) {
   return { id, cat, alt, vld, points, circles, shapeLabel, excerpt };
 }
 
+// 取本則 NOTAM 的乾淨內文：
+// 公告每則前面有「（置中）段名 + 分隔線(----/====)」標題，這標題屬於「下一則」，
+// 但區塊切割是「本則編號 → 下一則編號」，導致下一則的標題被吃進本則尾巴。
+// 作法：切到本則第一條分隔線為止；若分隔線上一行是（前面隔著空行的）段名標題，一併移除。
+function _notamBody(text) {
+  const lines = text.split('\n');
+  let cut = lines.length;
+  for (let i = 0; i < lines.length; i++) {
+    if (/^[ \t]*[-=]{5,}[ \t]*$/.test(lines[i])) { cut = i; break; }
+  }
+  let end = cut;
+  if (end - 1 >= 0 && lines[end - 1].trim() !== '' &&
+      (end - 2 < 0 || lines[end - 2].trim() === '')) {
+    end = end - 1;  // 丟掉分隔線正上方那行置中段名（屬於下一則）
+  }
+  return lines.slice(0, end).join('\n').trim();
+}
+
 // Classify by Q-code then keywords
 function _classifyNotam(text) {
   const t = text.toUpperCase();
-  // VAA / 火山 最優先（OFP 會把火山灰諮詢以 VAA NOTAM 形式給出）
-  if (/\bVAA\b|VOLCAN|\bASH\b|VOLCANO/.test(t)) return 'volcanic';
+  // VAA / 火山 最優先（火山灰諮詢以 VAA / ASH ADVISORY 形式給出）
+  // 注意：用 ASH ADVISORY / ASH CLD / VA CLD 而非裸 \bASH\b，避免地名等誤判
+  if (/\bVAA\b|VOLCAN|VOLCANO|ASH ADVISORY|ASH CLD|\bVA CLD\b/.test(t)) return 'volcanic';
 
   const q = text.match(/Q\)[^/\n]*\/Q([A-Z]{2,3})/);
   if (q) {
@@ -415,7 +439,9 @@ function _classifyNotam(text) {
   }
   if (/\bUAV\b|\bUAS\b|\bUNMANN|\bDRONE\b/.test(t)) return 'uav';
   if (/\bOBSTACLE\b|\bCRANE\b|\bMAST\b|\bTOWER\b|\bCHIMNEY\b/.test(t)) return 'obstacle';
-  if (/RESTRICT|PROHIBIT|DANGER AREA|MIL\s*(EXERC|TRAIN)|ROCKET|FRNG|\bGUN\b|ACTIV/.test(t)) return 'restricted';
+  // 限航/演習：含軍事活動（MIL ACT / MILITARY / TRAINING AREA / EXERCISE）、
+  // 禁限航區、不放行非參演航機等
+  if (/RESTRICT|PROHIBIT|DANGER AREA|\bMIL\b|MILITARY|MIL\s*(EXERC|TRAIN|ACT)|TRAINING AREA|EXERCISE|WILL NOT CLEAR|NON-PARTICIPATING|ROCKET|FRNG|\bGUN\b|FIRING|ACTIV/.test(t)) return 'restricted';
   return 'area';
 }
 
