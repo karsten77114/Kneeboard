@@ -72,9 +72,17 @@ let _layerMap   = {};     // notam.id → leaflet layer
 export function mount(container) {
   _render(container);
   _initMap();
-  if (store.flight?.notamText) {
-    _autoLoad();
+  // 不管是否有 notamText，只要有航班就畫航路
+  if (store.flight) {
+    _drawRoute(store.flight);
   }
+  if (store.flight?.notamText) {
+    // 有 NOTAM 文字才自動解析標示
+    const parsed = _parseNotams(store.flight.notamText);
+    _applyNotams(parsed);
+  }
+  // 畫完後 fit bounds（航路 + NOTAM）
+  setTimeout(() => _fitAll(), 300);
 }
 
 export function unmount() {
@@ -577,24 +585,41 @@ function _updateCount() {
 }
 
 // ─────────────────────────────────────────────────────────────────────
-// Fit map to all visible layers
+// Fit map to all visible layers (route + NOTAMs)
 function _fitAll() {
   if (!_map) return;
-  const bounds = [];
-  _notamLG?.eachLayer(l => {
-    try {
-      const b = l.getBounds ? l.getBounds() : null;
-      if (b) bounds.push(b);
-    } catch (_) {}
-  });
+  const allPts = [];
+
+  // Collect points from route layer
   _routeLG?.eachLayer(l => {
     try {
-      const b = l.getBounds ? l.getBounds() : null;
-      if (b) bounds.push(b);
+      if (l.getLatLngs) {
+        const lls = l.getLatLngs();
+        const flat = Array.isArray(lls[0]) ? lls.flat() : lls;
+        flat.forEach(ll => allPts.push([ll.lat, ll.lng]));
+      } else if (l.getLatLng) {
+        const ll = l.getLatLng();
+        allPts.push([ll.lat, ll.lng]);
+      }
     } catch (_) {}
   });
-  if (!bounds.length) return;
-  let combined = bounds[0];
-  for (let i = 1; i < bounds.length; i++) combined = combined.extend(bounds[i]);
-  _map.fitBounds(combined, { padding: [50, 50] });
+
+  // Collect from NOTAM layers
+  _notamLG?.eachLayer(grp => {
+    try {
+      grp.eachLayer?.(l => {
+        if (l.getBounds) {
+          const b = l.getBounds();
+          allPts.push([b.getNorth(), b.getWest()]);
+          allPts.push([b.getSouth(), b.getEast()]);
+        } else if (l.getLatLng) {
+          const ll = l.getLatLng();
+          allPts.push([ll.lat, ll.lng]);
+        }
+      });
+    } catch (_) {}
+  });
+
+  if (!allPts.length) return;
+  _map.fitBounds(L.latLngBounds(allPts), { padding: [50, 50] });
 }

@@ -840,7 +840,9 @@ function parseATSRoute(txt) {
 
 const PEGASYS_BASE      = 'https://jxcrew.starlux-airlines.com';
 const PEGASYS_LOGIN_URL = `${PEGASYS_BASE}/jxcrew/auth/crew/login`;
-const PEGASYS_SIO       = `${PEGASYS_BASE}/jxcrew/api/socket.io`;
+// CF Workers fetch() 需要 https:// 而非 wss://，平台會自動處理 WS upgrade
+const PEGASYS_WS_URL    = 'https://jxcrew.starlux-airlines.com/jxcrew/api';
+const PEGASYS_WS_PROTO  = 'pghz_v1';
 
 function _uuid4() {
   return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
@@ -887,97 +889,293 @@ async function _pegasysLogin(employeeId, password) {
   throw e;
 }
 
-// Socket.io HTTP long-polling roster fetch (more reliable than WS from CF Workers)
-// Returns { events: [{event,data}], sid, debugInfo }
-async function _pegasysPollingRoster(jwt, employeeId) {
-  const hdrs = {
-    'Origin':  PEGASYS_BASE,
-    'Referer': PEGASYS_BASE + '/',
-    'Accept':  '*/*',
-  };
+// ─── PegaSys WebSocket roster fetch ──────────────────────────────
+// 連線流程（逆向工程確認）：
+//   URL:      wss://jxcrew.starlux-airlines.com/jxcrew/api
+//   Protocol: pghz_v1  (Sec-WebSocket-Protocol)
+//   1. WS 建立後發送 ReqLogin（Name=員工編號, Password=JWT）
+//   2. 收到 RpyLogin → 取得 ClientGuid + StaffId（在 Attrs.IntAttributes）
+//   3. 發送 ReqStaffMemberRosterSummaryById（StaffId, 起訖日期）
+//   4. 收到 RpyStaffMemberRosterSummary → 班表資料
+//
+// Cloudflare Workers 使用 fetch Upgrade:websocket 作為 WebSocket client。
 
-  // Step 1 — Engine.io handshake → get session id
-  const hs = await fetch(`${PEGASYS_SIO}/?EIO=4&transport=polling`, { headers: hdrs });
-  if (!hs.ok) throw new Error(`sio_hs_${hs.status}`);
-  const hsBody = await hs.text();
-
-  // EIO=4 response: "0{...json...}" — leading '0' is OPEN packet type
-  let sid;
+// JWT payload 解碼（不驗證簽章，只取 claims）
+function _jwtPayload(token) {
   try {
-    const raw = hsBody.startsWith('0') ? hsBody.slice(1) : hsBody;
-    sid = JSON.parse(raw).sid;
-  } catch (_) {}
-  if (!sid) throw new Error(`sio_no_sid: ${hsBody.slice(0, 80)}`);
-
-  // Step 2 — Socket.io CONNECT with JWT auth token
-  const connectBody = `40${JSON.stringify({ auth: { token: jwt } })}`;
-  await fetch(`${PEGASYS_SIO}/?EIO=4&transport=polling&sid=${encodeURIComponent(sid)}`, {
-    method: 'POST',
-    headers: { ...hdrs, 'Content-Type': 'text/plain;charset=UTF-8' },
-    body: connectBody,
-  });
-
-  // Step 3 — Poll once to drain CONNECT ack / detect auth errors
-  const ackResp = await fetch(`${PEGASYS_SIO}/?EIO=4&transport=polling&sid=${encodeURIComponent(sid)}`, { headers: hdrs });
-  const ackBody = await ackResp.text();
-
-  // '44' = socket.io CONNECT_ERROR
-  if (ackBody.includes('44{') || ackBody.startsWith('44')) {
-    throw new Error(`sio_auth_fail: ${ackBody.slice(0, 120)}`);
-  }
-
-  // Step 4 — Trigger roster subscription via REST (server will queue data for our session)
-  fetch(`${PEGASYS_BASE}/jxcrew/api/roster/${employeeId}`, {
-    headers: { 'Authorization': `Bearer ${jwt}`, ...hdrs },
-  }).catch(() => {});
-
-  // Step 5 — Poll up to 4 times for roster data events
-  const events = [];
-  for (let i = 0; i < 4; i++) {
-    const pollResp = await fetch(`${PEGASYS_SIO}/?EIO=4&transport=polling&sid=${encodeURIComponent(sid)}`, { headers: hdrs });
-    if (!pollResp.ok) break;
-    const text = await pollResp.text();
-
-    // EIO=4: multiple packets separated by record separator \x1e
-    for (const pkt of text.split('\x1e')) {
-      if (pkt.startsWith('42')) {
-        try {
-          const parsed = JSON.parse(pkt.slice(2));
-          if (Array.isArray(parsed)) {
-            const [event, data] = parsed;
-            events.push({ event, data });
-            const ev = String(event).toLowerCase();
-            if (ev.includes('roster') || ev.includes('pairing') || ev.includes('duty') || ev.includes('allocation')) {
-              return { events, sid, debugInfo: ackBody };
-            }
-          }
-        } catch (_) {}
-      }
-      // EIO PING → respond PONG so session stays alive
-      if (pkt === '2') {
-        fetch(`${PEGASYS_SIO}/?EIO=4&transport=polling&sid=${encodeURIComponent(sid)}`, {
-          method: 'POST',
-          headers: { ...hdrs, 'Content-Type': 'text/plain;charset=UTF-8' },
-          body: '3',
-        }).catch(() => {});
-      }
-    }
-    if (events.length > 0) break;
-  }
-
-  return { events, sid, debugInfo: ackBody };
+    const seg = token.split('.')[1];
+    const pad = '='.repeat((4 - seg.length % 4) % 4);
+    return JSON.parse(atob(seg.replace(/-/g, '+').replace(/_/g, '/') + pad));
+  } catch { return {}; }
 }
 
-// Attempt to parse WS events into KneeBoard pairing format.
-// Returns array (may be empty) or {_raw: events} if format unknown.
-function _parseRosterEvents(events) {
-  if (!events || events.length === 0) return [];
-  // Placeholder: until we see the actual event structure, return events tagged as raw
-  // Once we know the real event names + shape, update this function.
-  return events.map(({ event, data }) => ({
-    _raw_event: event,
-    _raw_data: data,
+async function _pegasysWsRoster(jwt, employeeId) {
+  // ── JWT 中取 StaffId（避免依賴 RpyLogin Attrs）───────────────
+  const jwtClaims = _jwtPayload(jwt);
+  // Sabre Horizon 常見欄位：EmployeeRecNo, StaffRecNo, staffId, userId, sub...
+  const jwtStaffId = jwtClaims.EmployeeRecNo ?? jwtClaims.StaffRecNo
+                  ?? jwtClaims.staffId       ?? jwtClaims.staff_id
+                  ?? jwtClaims.userId        ?? jwtClaims.user_id
+                  ?? null;
+
+  // ── 建立 WS 連線 ──────────────────────────────────────────────
+  const wsResp = await fetch(PEGASYS_WS_URL, {
+    headers: {
+      'Upgrade':                  'websocket',
+      'Connection':               'Upgrade',
+      'Sec-WebSocket-Protocol':   PEGASYS_WS_PROTO,
+      'Origin':                   PEGASYS_BASE,
+      'User-Agent':               'Mozilla/5.0 (compatible; JXCF-Worker/1.0)',
+    },
+  });
+
+  if (wsResp.status !== 101) {
+    const body = await wsResp.text().catch(() => '');
+    throw new Error(`ws_upgrade_failed: HTTP ${wsResp.status} — ${body.slice(0, 120)}`);
+  }
+
+  const ws = wsResp.webSocket;
+  if (!ws) throw new Error('ws_upgrade_no_websocket');
+  ws.accept();
+
+  // ── 訊息與資料收集 ────────────────────────────────────────────
+  // 逆向工程確認：login 後伺服器自動推送完整資料，不需額外請求
+  // 包含：RpyRosterAllocationList / RpyActivityList / RpyStaffMemberList 等
+  let   reqNo      = 1;
+  let   clientGuid = _uuid4();
+  const allMsgs    = [];           // 收到的全部訊息（含完整資料）
+  let   loginError = null;
+
+  const _mkBase = (name, extras) => JSON.stringify({
+    SkyNet_MsgName: name,
+    SenderId:  0,
+    RequestNo: reqNo++,
+    ...extras,
+  });
+
+  // ── 送出 ReqLogin ─────────────────────────────────────────────
+  ws.send(_mkBase('ReqLogin', {
+    ClientGuid: clientGuid,
+    Name:       String(employeeId),
+    Password:   jwt,
+    Attrs: {
+      BoolAttributes:      [{ Key: 'JWT_TOKEN',   SequenceNumber: null, Value: true }],
+      StringAttributes:    [{ Key: 'LOGIN_TYPE',  SequenceNumber: null, Value: 'Crew' }],
+      DateAttributes:      [], DateRangeAttributes: [], DatetimeAttributes:  [],
+      DurationAttributes:  [], IntAttributes:       [], IntRangeAttributes:  [],
+      FloatAttributes:     [],
+    },
   }));
+
+  // ── 等待訊息（settle-timer 策略）─────────────────────────────
+  // 最後一條訊息到達後等 SETTLE_MS，確認初始推送結束
+  // 或 HARD_MS 硬超時
+  return new Promise((resolve, reject) => {
+    const HARD_MS   = 18000;
+    const SETTLE_MS = 2000;
+    let hardTimer   = null;
+    let settleTimer = null;
+    let resolved    = false;
+
+    const finalize = (reason) => {
+      if (resolved) return;
+      resolved = true;
+      clearTimeout(hardTimer);
+      clearTimeout(settleTimer);
+      try { ws.close(1000, 'done'); } catch (_) {}
+
+      // 從收到的訊息中提取關鍵資料
+      const find = (name) => allMsgs.filter(m => m.SkyNet_MsgName === name);
+
+      const rosterAllocMsgs = find('RpyRosterAllocationList');
+      const activityMsgs    = find('RpyActivityList');
+      const staffMemberMsgs = find('RpyStaffMemberList');
+
+      const rosterAllocs = rosterAllocMsgs.flatMap(m => m.DataList || []);
+      const activities   = activityMsgs.flatMap(m => m.DataList || []);
+      const staffInfo    = staffMemberMsgs.flatMap(m => m.DataList || [])[0] || null;
+
+      resolve({
+        loginError,
+        reason,
+        msgNames:      allMsgs.map(m => m.SkyNet_MsgName),
+        rosterAllocs,
+        activities,
+        staffInfo,
+        staffRecordNo: staffInfo?.RecordNo ?? null,
+      });
+    };
+
+    hardTimer = setTimeout(() => finalize('hard_timeout'), HARD_MS);
+
+    ws.addEventListener('message', (evt) => {
+      let msg;
+      try { msg = JSON.parse(evt.data); } catch { return; }
+
+      const name = msg.SkyNet_MsgName;
+      allMsgs.push(msg);
+
+      // 每條訊息重置 settle timer
+      clearTimeout(settleTimer);
+      settleTimer = setTimeout(() => finalize('settled'), SETTLE_MS);
+
+      // RpyLogin — 檢查登入是否成功
+      if (name === 'RpyLogin') {
+        if (msg.Error) {
+          loginError = msg.Error;
+          finalize('login_error');
+          return;
+        }
+        if (msg.ClientGuid) clientGuid = msg.ClientGuid;
+      }
+
+      // RpyNotificationCountList 是最後一個系統初始化訊息 → 立即 settle
+      if (name === 'RpyNotificationCountList') {
+        clearTimeout(settleTimer);
+        settleTimer = setTimeout(() => finalize('settled_on_notif_count'), 500);
+      }
+
+      // RpyHeartbeat — 保持連線
+      if (name === 'RpyHeartbeat') {
+        ws.send(_mkBase('ReqHeartbeat', {
+          ClientGuid: clientGuid,
+          RequestNo:  msg.RequestNo,
+        }));
+      }
+    });
+
+    ws.addEventListener('error', () => {
+      if (!resolved) { resolved = true; reject(new Error('ws_error')); }
+    });
+
+    ws.addEventListener('close', (evt) => {
+      if (!resolved) {
+        // 若連線在初始化期間關閉，直接 finalize 用已收到的資料
+        finalize(`ws_closed_${evt.code}`);
+      }
+    });
+  });
+}
+
+// ─── 解析 RpyRosterAllocationList + RpyActivityList → pairings ───
+// 逆向工程確認的資料結構（2026-06）：
+//
+// RpyRosterAllocationList.DataList[]:
+//   { ActivityId, StaffId, StartDatetime, EndDatetime,
+//     Attrs.StringAttributes[{Key:"ACTIVITY_TYPE", Value:"Pairing"|"Day Off"|...}] }
+//
+// RpyActivityList.DataList[]:
+//   { ActivityId, ActivityType, LocnId, StartDatetime, EndDatetime,
+//     Duties[]: { DutyType:"TOUR_OF_DUTY", StartLocnId, EndLocnId, StartDatetime,
+//       DutyActivities[]: { DutyActivityType:"F", TripId:"JX761", TripDate:"2026-05-23",
+//                           StartLocnId, EndLocnId, StartDatetime, EndDatetime } } }
+//
+// 飛行腿：DutyActivityType === "F"，TripId = 航班號（如 "JX761"）
+
+function _getStrAttr(attrs, key) {
+  return (attrs?.StringAttributes || []).find(a => a.Key === key)?.Value || null;
+}
+
+function _blockMinutes(depIso, arrIso) {
+  try {
+    const diff = new Date(arrIso) - new Date(depIso);
+    return diff > 0 ? Math.round(diff / 60000) : 0;
+  } catch { return 0; }
+}
+
+function _isoToHHMM(iso) {
+  // "2026-05-24T06:55:00+08:00" → "06:55"
+  return iso ? iso.slice(11, 16) : '';
+}
+
+function _isoToDateStr(iso) {
+  // "2026-05-24T06:55:00+08:00" → "20260524"
+  return iso ? iso.slice(0, 10).replace(/-/g, '') : '';
+}
+
+function _parseRosterData({ rosterAllocs, activities, staffInfo }) {
+  if (!rosterAllocs || rosterAllocs.length === 0) {
+    return {
+      _debug: true, _reason: 'no_roster_allocs',
+      alloc_count: 0, activity_count: activities?.length ?? 0,
+    };
+  }
+
+  // ActivityId → Activity 對照表
+  const actMap = {};
+  for (const a of (activities || [])) {
+    if (a.ActivityId) actMap[a.ActivityId] = a;
+  }
+
+  const pairings = [];
+
+  for (const alloc of rosterAllocs) {
+    // 只處理 Pairing 類型（ACTIVITY_TYPE = "Pairing"）
+    const actType = _getStrAttr(alloc.Attrs, 'ACTIVITY_TYPE');
+    if (actType !== 'Pairing') continue;
+
+    // 取對應的 Activity
+    const activity = actMap[alloc.ActivityId];
+    if (!activity || !activity.Duties) continue;
+
+    // 逐個 Duty（每個出勤日）
+    for (const duty of activity.Duties) {
+      if (duty.DutyType !== 'TOUR_OF_DUTY') continue;
+
+      // 報到時間 = duty.StartDatetime（含 TZ，local time）
+      const reportTime    = _isoToHHMM(duty.StartDatetime);   // "05:05"
+      const reportAirport = duty.StartLocnId || '';
+      const dutyDate      = _isoToDateStr(duty.StartDatetime); // "20260524"
+
+      // 個別航班腿
+      const legs = [];
+      for (const da of (duty.DutyActivities || [])) {
+        if (da.DutyActivityType !== 'F') continue;  // F = Flight
+
+        const fn = da.TripId || '';
+        if (!fn) continue;
+
+        const block = _blockMinutes(da.StartDatetime, da.EndDatetime);
+        legs.push({
+          flightNumber: fn,                           // "JX761"
+          dep:          da.StartLocnId || '',          // "TPE"
+          dest:         da.EndLocnId   || '',          // "CGK"
+          std_local:    _isoToHHMM(da.StartDatetime), // "06:55"
+          sta_local:    _isoToHHMM(da.EndDatetime),   // "11:15"
+          std_utc:      _isoToHHMM(new Date(da.StartDatetime).toISOString()), // UTC
+          sta_utc:      _isoToHHMM(new Date(da.EndDatetime).toISOString()),
+          blockTime:    block,
+          tripDate:     (da.TripDate || '').replace(/-/g, ''),  // "20260523"
+        });
+      }
+
+      if (legs.length === 0) continue;
+
+      // 日期：第一腿的 TripDate（排班日）或 duty 開始日
+      const date = legs[0].tripDate || dutyDate;
+
+      pairings.push({
+        date,
+        reportTime,
+        reportAirport,
+        legs,
+        rawCodes: [_getStrAttr(alloc.Attrs, 'ACTIVITY_CODE') || alloc.ActivityId],
+      });
+    }
+  }
+
+  if (pairings.length === 0) {
+    return {
+      _debug: true, _reason: 'no_pairings_parsed',
+      alloc_count:     rosterAllocs.length,
+      activity_count:  activities.length,
+      pairing_allocs:  rosterAllocs.filter(a => _getStrAttr(a.Attrs, 'ACTIVITY_TYPE') === 'Pairing').length,
+      sample_alloc:    JSON.stringify(rosterAllocs.slice(0, 2)).slice(0, 600),
+      sample_activity: JSON.stringify(activities.slice(0, 2)).slice(0, 600),
+    };
+  }
+
+  return pairings;
 }
 
 // 主 Handler
@@ -2322,49 +2520,71 @@ async function handleRequest(request, env) {
         }
       }
 
-      // Fetch roster via socket.io HTTP polling
+      // Fetch roster via WebSocket (pghz_v1 protocol)
       const rosterKey = `pegasys_roster_${employeeId}`;
-      let pollResult = null, pollError = null;
+      let wsResult = null, wsError = null;
       try {
-        pollResult = await _pegasysPollingRoster(jwt, employeeId);
+        wsResult = await _pegasysWsRoster(jwt, employeeId);
       } catch (e) {
-        pollError = e.message;
+        wsError = e.message;
       }
 
-      const wsEvents = pollResult?.events || [];
-
-      if (pollError && wsEvents.length === 0) {
-        // Polling failed — try cached roster, return full error detail
+      // ── WebSocket 呼叫失敗 ────────────────────────────────────
+      if (wsError) {
         const cached = env.NOTICES_KV ? await env.NOTICES_KV.get(rosterKey, 'json') : null;
         if (cached) {
           return new Response(JSON.stringify({
-            ok: true, stale: true, cached_at: cached.ts, ws_error: pollError,
-            ws_events: cached.events || [], pairings: _parseRosterEvents(cached.events || []),
+            ok: true, stale: true, cached_at: cached.ts,
+            ws_error: wsError, pairings: cached.pairings || [],
           }), { headers: { ...headers, 'Content-Type': 'application/json' } });
         }
-        // Return full error detail so client can display it
-        return new Response(JSON.stringify({ error: pollError, detail: pollError }), {
+        return new Response(JSON.stringify({ error: wsError }), {
           status: 502, headers: { ...headers, 'Content-Type': 'application/json' }
         });
       }
 
-      // Cache successful events
-      if (wsEvents.length > 0 && env.NOTICES_KV) {
+      // ── Login 失敗 ────────────────────────────────────────────
+      if (wsResult.loginError) {
+        return new Response(JSON.stringify({ error: 'pegasys_login_rejected', detail: wsResult.loginError }), {
+          status: 401, headers: { ...headers, 'Content-Type': 'application/json' }
+        });
+      }
+
+      // ── 解析班表 ──────────────────────────────────────────────
+      const pairings = _parseRosterData({
+        rosterAllocs: wsResult.rosterAllocs || [],
+        activities:   wsResult.activities   || [],
+        staffInfo:    wsResult.staffInfo,
+      });
+
+      const result = {
+        ok: true,
+        reason:       wsResult.reason,
+        msgNames:     wsResult.msgNames || [],
+        staffInfo:    wsResult.staffInfo ? {
+          RecordNo: wsResult.staffInfo.RecordNo,
+          StaffId:  wsResult.staffInfo.StaffId,
+          Name:     `${wsResult.staffInfo.FirstName || ''} ${wsResult.staffInfo.LastName || ''}`.trim(),
+        } : null,
+        pairings,
+        // 除錯用：完整 allocation 前3筆 + activity 前3筆
+        _debug_allocs:    (wsResult.rosterAllocs || []).slice(0, 3),
+        _debug_activities: (wsResult.activities  || []).slice(0, 3),
+        _debug_alloc_count:    (wsResult.rosterAllocs || []).length,
+        _debug_activity_count: (wsResult.activities  || []).length,
+      };
+
+      // 快取 6 小時（只在有真實 pairings 時）
+      if (env.NOTICES_KV && Array.isArray(pairings) && pairings.length > 0) {
         await env.NOTICES_KV.put(rosterKey,
-          JSON.stringify({ ts: new Date().toISOString(), events: wsEvents }),
+          JSON.stringify({ ts: new Date().toISOString(), pairings }),
           { expirationTtl: 21600 }
         );
       }
 
-      const pairings = _parseRosterEvents(wsEvents);
-      return new Response(JSON.stringify({
-        ok: true,
-        ws_events: wsEvents,
-        pairings,
-        debug: wsEvents.length > 0,
-        debugInfo: pollResult?.debugInfo,
-        sid: pollResult?.sid,
-      }), { headers: { ...headers, 'Content-Type': 'application/json' } });
+      return new Response(JSON.stringify(result), {
+        headers: { ...headers, 'Content-Type': 'application/json' }
+      });
     }
 
     return new Response(JSON.stringify({ error: 'Not found', routes: ['/auth/login', '/api/briefing'] }), {
