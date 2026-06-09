@@ -1713,6 +1713,56 @@ async function handleRequest(request, env) {
       });
     }
 
+    // GET /turbli?dep=TPE&dest=CEB&date=2026-06-09&flight=783
+    // 代理 turbli 航班頁，抽出亂流圖資料（繞過 X-Frame-Options + CORS），自繪用
+    if (url.pathname === '/turbli' && request.method === 'GET') {
+      const dep  = (url.searchParams.get('dep')  || '').toUpperCase();
+      const dest = (url.searchParams.get('dest') || '').toUpperCase();
+      const date = url.searchParams.get('date') || new Date().toISOString().slice(0,10);
+      const flt  = (url.searchParams.get('flight') || '').replace(/[^0-9]/g,'');
+      if (!dep || !dest || !flt) {
+        return new Response(JSON.stringify({ ok:false, error:'missing dep/dest/flight' }), { status:400, headers:{...headers,'Content-Type':'application/json'} });
+      }
+      const turbliUrl = `https://turbli.com/${dep}/${dest}/${date}/JX-${flt}/`;
+      try {
+        const r = await fetch(turbliUrl, {
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.9',
+          },
+        });
+        if (!r.ok) {
+          return new Response(JSON.stringify({ ok:false, status:r.status, url:turbliUrl }), { status:200, headers:{...headers,'Content-Type':'application/json'} });
+        }
+        const html = await r.text();
+        const numArr = name => {
+          const m = html.match(new RegExp('var\\s+'+name+'\\s*=\\s*(\\[[^\\]]*\\])'));
+          if (!m) return null;
+          try { return JSON.parse(m[1]); } catch(e){ return null; }
+        };
+        // 主線 CAT 為字串包陣列：var CAT = ("[16.4, 16.5, ...]")...
+        let line = null;
+        const cm = html.match(/var\s+CAT\s*=\s*\("(\[[^"]*\])"\)/);
+        if (cm) { try { line = JSON.parse(cm[1]); } catch(e){} }
+        const upper = numArr('CAT_upper');
+        const lower = numArr('CAT_lower');
+        const alt   = numArr('alt');  // 高度（FL）序列，對應每個點
+        // warning + flight number 為 ("...") 形式
+        const wm = html.match(/var\s+warning_turb\s*=\s*\("([^"]*)"\)/);
+        const fm = html.match(/var\s+flight_number\s*=\s*\("([^"]*)"\)/);
+        return new Response(JSON.stringify({
+          ok: true, url: turbliUrl,
+          flight: fm ? fm[1] : `JX ${flt}`,
+          warning: wm ? wm[1] : null,
+          line, upper, lower, alt,
+          dep, dest,
+        }), { headers: { ...headers, 'Content-Type':'application/json', 'Cache-Control':'private, max-age=1800' } });
+      } catch (e) {
+        return new Response(JSON.stringify({ ok:false, error:String(e), url:turbliUrl }), { status:200, headers:{...headers,'Content-Type':'application/json'} });
+      }
+    }
+
     // GET /atis?icao=RCTP — 抓取 atis.guru D-ATIS 並解析回傳 JSON
     if (url.pathname === '/atis' && request.method === 'GET') {
       const icao = (url.searchParams.get('icao') || '').trim().toUpperCase();

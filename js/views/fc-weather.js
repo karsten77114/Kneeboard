@@ -991,46 +991,128 @@ function _buildTurbliUrl(dep, dest) {
   return `https://turbli.com/${dep}/${dest}/${today}/`;
 }
 
-function _renderTurbli(panel) {
+async function _renderTurbli(panel) {
   const f = store.flight || {};
   const b = store.briefing;
   const depRaw  = b?.dep  || f?.dep  || '';
   const destRaw = b?.dest || f?.dest || '';
-  const dep  = toICAO(depRaw)  || depRaw;
-  const dest = toICAO(destRaw) || destRaw;
   const depIata  = toIATA(depRaw)  || depRaw;
   const destIata = toIATA(destRaw) || destRaw;
   const fltNo   = (b?.flightNumber || f?.flightNumber || '').replace(/^JX/i, '');
-  const url = depIata && destIata ? _buildTurbliUrl(depIata, destIata) : 'https://turbli.com';
+  const date    = new Date().toISOString().slice(0, 10);
+  const extUrl  = depIata && destIata ? _buildTurbliUrl(depIata, destIata) : 'https://turbli.com';
 
+  if (!depIata || !destIata) {
+    panel.innerHTML = `<div class="card"><div style="font-size:13px;color:var(--text3)">查詢航班後自動帶入亂流圖</div></div>`;
+    return;
+  }
+
+  // Header + loading state
   panel.innerHTML = `
-    <div class="card">
-      <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">
+    <div class="card" style="padding:0;overflow:hidden">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;padding:12px 14px 10px">
         <div>
-          ${dep && dest ? `
-            <div style="font-size:17px;font-weight:800;color:var(--gold);font-family:'JetBrains Mono',monospace;margin-bottom:4px">
-              ${dep} → ${dest}
-            </div>
-            <div style="font-size:11px;color:var(--text3)">
-              亂流預測 · ECMWF 72h · turbli.com
-              ${fltNo ? `· JX-${fltNo}` : ''}
-            </div>
-          ` : `
-            <div style="font-size:13px;color:var(--text3)">查詢航班後自動帶入亂流連結</div>
-          `}
+          <div style="font-size:16px;font-weight:800;color:var(--gold);font-family:'JetBrains Mono',monospace">${depIata} → ${destIata}</div>
+          <div style="font-size:11px;color:var(--text3)">亂流預測 · ECMWF · turbli.com${fltNo ? ` · JX-${fltNo}` : ''}</div>
         </div>
-        <a href="${url}" target="_blank" rel="noopener" class="btn btn-primary">
-          開啟 Turbli 亂流圖 Open ↗
-        </a>
+        <a href="${extUrl}" target="_blank" rel="noopener" class="btn btn-ghost btn-sm" style="font-size:11px;padding:3px 9px">turbli ↗</a>
       </div>
-      <hr class="divider" style="margin:14px 0">
-      <div style="font-size:12px;color:var(--text2);line-height:1.9">
-        <div>· 亂流強度：Light / Moderate / Severe / Extreme</div>
-        <div>· 資料來源：ECMWF 72 小時高空風預報</div>
-        <div>· 建議起飛前 2–4 小時查詢最新預報</div>
-        <div>· 與 SIGMET / PIREPs 交叉確認</div>
+      <div id="turbli-body" style="padding:0 8px 10px">
+        <div class="state-screen" style="min-height:30vh"><div class="state-icon">🌀</div><div class="state-title">載入亂流資料…</div></div>
       </div>
     </div>`;
+
+  const body = panel.querySelector('#turbli-body');
+  try {
+    const r = await fetch(`${WORKER}/turbli?dep=${depIata}&dest=${destIata}&date=${date}&flight=${fltNo || ''}`);
+    const d = await r.json();
+    if (!d.ok || !d.line || !d.line.length) {
+      body.innerHTML = `
+        <div class="state-screen" style="min-height:25vh">
+          <div class="state-icon">🌀</div>
+          <div class="state-title">此航班暫無亂流資料</div>
+          <div class="state-sub">turbli 僅提供未來約 72 小時內的航班預報</div>
+          <a href="${extUrl}" target="_blank" rel="noopener" class="btn btn-primary btn-sm" style="margin-top:12px">在 turbli 查看 ↗</a>
+        </div>`;
+      return;
+    }
+    body.innerHTML = _turbliChartSvg(d) + `
+      <div style="display:flex;gap:14px;flex-wrap:wrap;font-size:11px;color:var(--text3);padding:8px 10px 4px">
+        <span><span style="display:inline-block;width:14px;height:2px;background:#2c3e6b;vertical-align:middle;margin-right:4px"></span>沿預期航路亂流</span>
+        <span><span style="display:inline-block;width:12px;height:8px;background:rgba(150,160,180,0.4);vertical-align:middle;margin-right:4px"></span>±2000ft / ±40nm 偏航範圍</span>
+      </div>`;
+  } catch (e) {
+    body.innerHTML = `
+      <div class="state-screen" style="min-height:25vh">
+        <div class="state-icon">⚠️</div>
+        <div class="state-title">載入失敗</div>
+        <div class="state-sub">${String(e).slice(0,80)}</div>
+        <a href="${extUrl}" target="_blank" rel="noopener" class="btn btn-primary btn-sm" style="margin-top:12px">在 turbli 查看 ↗</a>
+      </div>`;
+  }
+}
+
+// 自繪 turbli 亂流圖（EDR）SVG
+function _turbliChartSvg(d) {
+  const line = d.line, up = d.upper || [], lo = d.lower || [];
+  const n = line.length;
+  const W = 900, H = 460;
+  const mL = 64, mR = 18, mT = 46, mB = 46;
+  const pw = W - mL - mR, ph = H - mT - mB;
+  const yMax = 60;
+  const X = i => mL + (i / (n - 1)) * pw;
+  const Y = v => mT + ph - (Math.min(Math.max(v, 0), yMax) / yMax) * ph;
+
+  // 亂流強度區帶（左側色條 + 全寬淡色背景）
+  const zones = [
+    { lo: 0,  hi: 20, label: 'light',   col: '#f7e8d2', bar: '#e9c8a0' },
+    { lo: 20, hi: 40, label: 'moderate',col: '#f5d6ad', bar: '#e8a85a' },
+    { lo: 40, hi: 60, label: 'mod-sev', col: '#f0c08a', bar: '#e08a3c' },
+  ];
+  let zoneRects = '', zoneBar = '', zoneLabels = '';
+  for (const z of zones) {
+    const y0 = Y(z.hi), y1 = Y(z.lo);
+    zoneRects  += `<rect x="${mL}" y="${y0}" width="${pw}" height="${y1-y0}" fill="${z.col}" opacity="0.35"/>`;
+    zoneBar    += `<rect x="${mL-14}" y="${y0}" width="14" height="${y1-y0}" fill="${z.bar}"/>`;
+    zoneLabels += `<text x="${mL-7}" y="${(y0+y1)/2}" font-size="10" fill="#5a4a36" text-anchor="middle" transform="rotate(-90 ${mL-7} ${(y0+y1)/2})" font-weight="600">${z.label}</text>`;
+  }
+
+  // Y 軸刻度
+  let yTicks = '';
+  for (let v = 0; v <= 60; v += 10) {
+    yTicks += `<line x1="${mL}" y1="${Y(v)}" x2="${W-mR}" y2="${Y(v)}" stroke="#d8dee8" stroke-width="0.7"/>
+      <text x="${mL-18}" y="${Y(v)+3}" font-size="10" fill="#888" text-anchor="end">${v}</text>`;
+  }
+
+  // 偏航範圍 band（upper→lower 多邊形）
+  let band = '';
+  if (up.length === n && lo.length === n) {
+    let pts = '';
+    for (let i = 0; i < n; i++) pts += `${X(i).toFixed(1)},${Y(up[i]).toFixed(1)} `;
+    for (let i = n - 1; i >= 0; i--) pts += `${X(i).toFixed(1)},${Y(lo[i]).toFixed(1)} `;
+    band = `<polygon points="${pts.trim()}" fill="rgba(150,160,180,0.38)" stroke="none"/>`;
+  }
+
+  // 主線
+  let linePts = '';
+  for (let i = 0; i < n; i++) linePts += `${X(i).toFixed(1)},${Y(line[i]).toFixed(1)} `;
+  const mainLine = `<polyline points="${linePts.trim()}" fill="none" stroke="#2c3e6b" stroke-width="2.2"/>`;
+
+  // X 軸標籤（dep/dest + Flight hours）
+  const xLabels = `
+    <text x="${mL}" y="${H-14}" font-size="12" fill="#444" text-anchor="start" font-weight="700">${d.dep}</text>
+    <text x="${W-mR}" y="${H-14}" font-size="12" fill="#444" text-anchor="end" font-weight="700">${d.dest}</text>
+    <text x="${mL+pw/2}" y="${H-14}" font-size="11" fill="#888" text-anchor="middle">Flight hours</text>`;
+
+  const warnColor = /smooth|light/i.test(d.warning||'') ? '#16a34a' : /moderate/i.test(d.warning||'') ? '#e08a3c' : '#dc2626';
+  const header = `<text x="${W/2}" y="26" font-size="14" fill="${warnColor}" text-anchor="middle" font-weight="700">${(d.warning||'').replace(/[<>&]/g,'')}</text>`;
+
+  return `<div style="background:#fff;border-radius:8px;overflow:hidden">
+    <svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;display:block">
+      <rect x="0" y="0" width="${W}" height="${H}" fill="#fff"/>
+      ${zoneRects}${yTicks}${band}${mainLine}${zoneBar}${zoneLabels}${xLabels}${header}
+    </svg>
+  </div>`;
 }
 
 // ══════════════════════════════════════════════════════════════════
