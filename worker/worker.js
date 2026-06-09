@@ -827,7 +827,8 @@ function parseOFP(txt) {
 function parseOFPWaypoints(txt) {
   if (!txt) return [];
   const pts = [];
-  const re = /^([NS])(\d{4,6}(?:\.\d+)?)([EW])(\d{5,7}(?:\.\d+)?)\b/mg;
+  // LIDO NAVIGATION LOG 座標行格式：N3355.9 W11827.5（中間有空格，DDMM.M / DDDMM.M）
+  const re = /^([NS])(\d{4,6}(?:\.\d+)?)\s*([EW])(\d{5,7}(?:\.\d+)?)\b/mg;
   let m;
   while ((m = re.exec(txt)) !== null) {
     const lat = _ofpCoord(m[2], m[1]);
@@ -1412,8 +1413,6 @@ async function handleRequest(request, env) {
         raw: {
           ofpPreview:   ofpText   ? ofpText.substring(0, 800)  : null,
           apliPreview:  apliText  ? apliText.substring(0, 800) : null,
-          notamPreview: notamText ? notamText.substring(0, 400) : null,  // debug
-          routePtCount: parseOFPWaypoints(ofpText).length,               // debug
         }
       };
 

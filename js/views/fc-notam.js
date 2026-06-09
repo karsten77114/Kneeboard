@@ -1,6 +1,6 @@
 // fc-notam.js — NOTAM Coordinate Visualizer (v2)
-// Auto-loads from store.flight.notamText + draws great-circle route
-// Manual paste mode as fallback / supplement
+// Auto-loads from store.briefing (notamText + routePoints) and draws the
+// actual OFP flight-plan route. Manual paste mode as fallback / supplement.
 
 import store from '../store.js';
 import { toICAO } from '../utils.js';
@@ -72,13 +72,13 @@ let _layerMap   = {};     // notam.id → leaflet layer
 export function mount(container) {
   _render(container);
   _initMap();
-  // 不管是否有 notamText，只要有航班就畫航路
-  if (store.flight) {
-    _drawRoute(store.flight);
+  // 完整 briefing 資料在 store.briefing（含 routePoints / notamText），store.flight 只是精簡版
+  const b = store.briefing;
+  if (b) {
+    _drawRoute(b);
   }
-  if (store.flight?.notamText) {
-    // 有 NOTAM 文字才自動解析標示
-    const parsed = _parseNotams(store.flight.notamText);
+  if (b?.notamText) {
+    const parsed = _parseNotams(b.notamText);
     _applyNotams(parsed);
   }
   // 畫完後 fit bounds（航路 + NOTAM）
@@ -92,8 +92,8 @@ export function unmount() {
 
 // ─────────────────────────────────────────────────────────────────────
 function _render(container) {
-  const hasAuto = !!(store.flight?.notamText);
-  const f = store.flight;
+  const hasAuto = !!(store.briefing?.notamText);
+  const f = store.briefing || store.flight || {};
   const headerHtml = hasAuto
     ? `<div class="notam-auto-header">
          <span class="notam-auto-badge">AUTO</span>
@@ -229,15 +229,6 @@ function _initMap() {
 }
 
 // ─────────────────────────────────────────────────────────────────────
-function _autoLoad() {
-  const f = store.flight;
-  _drawRoute(f);
-  const parsed = _parseNotams(f.notamText || '');
-  _applyNotams(parsed);
-  // After NOTAM layers settle, fit bounds to route + NOTAMs
-  setTimeout(() => _fitAll(), 200);
-}
-
 function _scanManual() {
   const text = (document.getElementById('notam-input')?.value || '').trim();
   if (!text) return;
@@ -324,7 +315,9 @@ function _greatCircle(lat1, lon1, lat2, lon2, n) {
 // ─────────────────────────────────────────────────────────────────────
 // NOTAM parsing
 function _parseNotams(text) {
-  const blocks = _splitNotams(text);
+  // LIDO NOTAM bulletin 內含 <b>...</b> 等 HTML 標籤，先清除
+  const clean = text.replace(/<\/?[a-z][^>]*>/gi, '');
+  const blocks = _splitNotams(clean);
   return blocks.map(b => _parseOneNotam(b.id, b.text)).filter(n => n.points.length || n.circles.length);
 }
 

@@ -1,4 +1,4 @@
-const CACHE = 'kneeboard-v58';
+const CACHE = 'kneeboard-v59';
 const PRECACHE = [
   './',
   './index.html',
