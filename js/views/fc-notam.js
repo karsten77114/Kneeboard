@@ -175,17 +175,16 @@ function _render(container) {
       .notam-leg-route { width: 18px; height: 2px; background: #2dd4bf; border-radius: 1px; }
 
       /* Leaflet overrides */
-      .leaflet-container { background: #1c1c1c; }
-      .leaflet-tile-container { filter: grayscale(80%) brightness(0.8); }
-      .leaflet-bar a { background: var(--card) !important; color: var(--gold) !important; border-bottom: 1px solid var(--border) !important; }
-      .leaflet-control-attribution { background: rgba(0,0,0,0.5) !important; color: var(--text3) !important; font-size: 9px !important; }
-      .leaflet-popup-content-wrapper { background: var(--card); color: var(--text); border: 1px solid var(--border); border-radius: 10px; box-shadow: 0 8px 32px rgba(0,0,0,0.6); }
-      .leaflet-popup-tip { background: var(--card); }
-      .leaflet-popup-close-button { color: var(--text3) !important; font-size: 18px !important; }
-      .notam-popup-id { font-size: 14px; font-weight: 800; font-family: var(--mono); color: var(--text); margin-bottom: 6px; }
+      .leaflet-container { background: #e8e4df; }
+      .leaflet-bar a { background: #fff !important; color: #555 !important; border-bottom: 1px solid #ccc !important; }
+      .leaflet-control-attribution { background: rgba(255,255,255,0.75) !important; color: #888 !important; font-size: 9px !important; }
+      .leaflet-popup-content-wrapper { background: #fff; color: #222; border-radius: 10px; box-shadow: 0 4px 20px rgba(0,0,0,0.2); }
+      .leaflet-popup-tip { background: #fff; }
+      .leaflet-popup-close-button { color: #888 !important; font-size: 18px !important; }
+      .notam-popup-id { font-size: 14px; font-weight: 800; font-family: var(--mono); color: #111; margin-bottom: 6px; }
       .notam-popup-badge { display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: 700; color: #fff; margin-left: 8px; }
-      .notam-popup-row { font-size: 12px; color: var(--text2); margin: 3px 0; }
-      .notam-popup-text { font-size: 11px; color: var(--text3); margin-top: 8px; font-family: var(--mono); white-space: pre-wrap; max-height: 120px; overflow-y: auto; border-top: 1px solid var(--border); padding-top: 6px; }
+      .notam-popup-row { font-size: 12px; color: #444; margin: 3px 0; }
+      .notam-popup-text { font-size: 11px; color: #666; margin-top: 8px; font-family: var(--mono); white-space: pre-wrap; max-height: 120px; overflow-y: auto; border-top: 1px solid #eee; padding-top: 6px; }
 
       @media (max-width: 860px) {
         .notam-page { grid-template-columns: 1fr; height: auto; overflow: visible; }
@@ -219,9 +218,9 @@ function _initMap() {
   const el = document.getElementById('notam-map');
   if (!el || _map) return;
 
-  _map = L.map('notam-map', { center: [23.8, 121.0], zoom: 7, zoomControl: true });
-  L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-    attribution: 'Leaflet | &copy; OpenStreetMap',
+  _map = L.map('notam-map', { center: [23.8, 121.0], zoom: 5, zoomControl: true });
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/">CARTO</a>',
     subdomains: 'abcd', maxZoom: 19,
   }).addTo(_map);
 
@@ -280,17 +279,17 @@ function _drawRoute(f) {
     while (pts[i][1] - pts[i-1][1] < -180) pts[i][1] += 360;
   }
 
-  L.polyline(pts, { color: '#2dd4bf', weight: 2.5, opacity: 0.9 }).addTo(_routeLG);
+  L.polyline(pts, { color: '#14b8a6', weight: 2.5, opacity: 0.9 }).addTo(_routeLG);
 
-  // 沿途小圓點（每 6 點一個）
-  for (let i = 0; i < pts.length; i += 6) {
+  // 沿途空心圓點（每 4 點一個），使用正規化座標
+  for (let i = 0; i < pts.length; i += 4) {
     L.circleMarker(pts[i], {
-      radius: 2.5, color: '#2dd4bf', fillColor: '#2dd4bf', fillOpacity: 0.7, weight: 1,
+      radius: 3, color: '#14b8a6', fillColor: '#fff', fillOpacity: 0.8, weight: 1.5,
     }).addTo(_routeLG);
   }
-  // Dep/dest 實心圓
-  L.circleMarker(depLL,  { radius: 5, color: '#0d0c0b', fillColor: '#2dd4bf', fillOpacity: 1, weight: 2 }).addTo(_routeLG);
-  L.circleMarker(destLL, { radius: 5, color: '#0d0c0b', fillColor: '#2dd4bf', fillOpacity: 1, weight: 2 }).addTo(_routeLG);
+  // Dep/dest 實心圓 — 必須使用正規化後的第一/最後一點，才能和 polyline 重合
+  L.circleMarker(pts[0],              { radius: 6, color: '#fff', fillColor: '#14b8a6', fillOpacity: 1, weight: 2 }).addTo(_routeLG);
+  L.circleMarker(pts[pts.length - 1], { radius: 6, color: '#fff', fillColor: '#14b8a6', fillOpacity: 1, weight: 2 }).addTo(_routeLG);
   // 不在這裡 setView — 讓 _fitAll() 根據實際 layer bounds 決定
 }
 
