@@ -264,16 +264,20 @@ function _drawRoute(f) {
   if (!f || !_routeLG) return;
   _routeLG.clearLayers();
 
-  const depICAO  = toICAO(f.dep  || '');
-  const destICAO = toICAO(f.dest || '');
-  const depLL    = _APT_LL[depICAO];
-  const destLL   = _APT_LL[destICAO];
-  if (!depLL || !destLL) return;
+  let pts;
 
-  const pts = _greatCircle(depLL[0], depLL[1], destLL[0], destLL[1], 60);
-  // ── 換日線修正 ────────────────────────────────────────────────────
-  // Leaflet Mercator 在 -180/+180 跳躍時會畫出橫跨整個地圖的直線。
-  // 正規化：讓相鄰兩點的經度差永遠 ≤ 180°（使經度單調遞增或遞減）。
+  // ── 優先使用 OFP 真實航路點 ────────────────────────────────────────
+  if (f.routePoints?.length > 3) {
+    pts = f.routePoints.map(p => [p[0], p[1]]);
+  } else {
+    // Fallback：dep↔dest 大圓
+    const depLL  = _APT_LL[toICAO(f.dep  || '')];
+    const destLL = _APT_LL[toICAO(f.dest || '')];
+    if (!depLL || !destLL) return;
+    pts = _greatCircle(depLL[0], depLL[1], destLL[0], destLL[1], 60);
+  }
+
+  // ── 換日線正規化（無論來源都需要）────────────────────────────────
   for (let i = 1; i < pts.length; i++) {
     while (pts[i][1] - pts[i-1][1] >  180) pts[i][1] -= 360;
     while (pts[i][1] - pts[i-1][1] < -180) pts[i][1] += 360;
@@ -281,16 +285,16 @@ function _drawRoute(f) {
 
   L.polyline(pts, { color: '#14b8a6', weight: 2.5, opacity: 0.9 }).addTo(_routeLG);
 
-  // 沿途空心圓點（每 4 點一個），使用正規化座標
-  for (let i = 0; i < pts.length; i += 4) {
+  // 沿途空心圓點
+  const step = Math.max(1, Math.floor(pts.length / 20));
+  for (let i = 0; i < pts.length; i += step) {
     L.circleMarker(pts[i], {
       radius: 3, color: '#14b8a6', fillColor: '#fff', fillOpacity: 0.8, weight: 1.5,
     }).addTo(_routeLG);
   }
-  // Dep/dest 實心圓 — 必須使用正規化後的第一/最後一點，才能和 polyline 重合
+  // Dep/dest 實心大點
   L.circleMarker(pts[0],              { radius: 6, color: '#fff', fillColor: '#14b8a6', fillOpacity: 1, weight: 2 }).addTo(_routeLG);
   L.circleMarker(pts[pts.length - 1], { radius: 6, color: '#fff', fillColor: '#14b8a6', fillOpacity: 1, weight: 2 }).addTo(_routeLG);
-  // 不在這裡 setView — 讓 _fitAll() 根據實際 layer bounds 決定
 }
 
 // 球面插值大圓路線（返回 [lat, lon] 陣列，lon 尚未正規化）

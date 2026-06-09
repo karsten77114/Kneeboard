@@ -821,6 +821,41 @@ function parseOFP(txt) {
   return r;
 }
 
+// ── OFP 航路點座標解析 ────────────────────────────────────────────────
+// LIDO OFP 每個航路點區塊的第二行為座標行，格式：N250639E1213154 或 N2506E12123
+// 掃描 OFP 文字中所有「行首以 N/S 開頭＋數字＋E/W＋數字」的行，依序回傳 [lat, lon]
+function parseOFPWaypoints(txt) {
+  if (!txt) return [];
+  const pts = [];
+  const re = /^([NS])(\d{4,6}(?:\.\d+)?)([EW])(\d{5,7}(?:\.\d+)?)\b/mg;
+  let m;
+  while ((m = re.exec(txt)) !== null) {
+    const lat = _ofpCoord(m[2], m[1]);
+    const lon = _ofpCoord(m[4], m[3]);
+    if (lat != null && lon != null) pts.push([+lat.toFixed(4), +lon.toFixed(4)]);
+  }
+  return pts;
+}
+
+function _ofpCoord(val, dir) {
+  const dot = val.indexOf('.');
+  const int = dot >= 0 ? val.slice(0, dot) : val;
+  const frac = dot >= 0 ? val.slice(dot) : '';
+  const len = int.length;
+  let deg, min, sec = 0;
+  if (len === 4 || len === 5) {         // DDMM or DDDMM
+    deg = +int.slice(0, len - 2);
+    min = parseFloat(int.slice(len - 2) + frac);
+  } else if (len === 6 || len === 7) {  // DDMMSS or DDDMMSS
+    deg = +int.slice(0, len - 4);
+    min = +int.slice(len - 4, len - 2);
+    sec = parseFloat(int.slice(len - 2) + frac);
+  } else return null;
+  let r = deg + min / 60 + sec / 3600;
+  if (dir === 'S' || dir === 'W') r = -r;
+  return r;
+}
+
 // 提取完整 ICAO FPL 區塊（含括號），供 WNI 等工具使用
 function extractIcaoFpl(txt) {
   if (!txt) return null;
@@ -1373,9 +1408,12 @@ async function handleRequest(request, env) {
         ofp: { ...ofpExtra, flight: flightNum, dep: parsed.dep, dest: parsed.dest },
         wxAirports: allWxAirports,
         notamText: notamText || null,
+        routePoints: parseOFPWaypoints(ofpText),  // 從 OFP 文字解析的航路點座標
         raw: {
-          ofpPreview:  ofpText  ? ofpText.substring(0, 800)  : null,
-          apliPreview: apliText ? apliText.substring(0, 800) : null,
+          ofpPreview:   ofpText   ? ofpText.substring(0, 800)  : null,
+          apliPreview:  apliText  ? apliText.substring(0, 800) : null,
+          notamPreview: notamText ? notamText.substring(0, 400) : null,  // debug
+          routePtCount: parseOFPWaypoints(ofpText).length,               // debug
         }
       };
 
