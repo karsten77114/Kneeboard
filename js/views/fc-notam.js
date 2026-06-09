@@ -271,30 +271,30 @@ function _drawRoute(f) {
   const destLL   = _APT_LL[destICAO];
   if (!depLL || !destLL) return;
 
-  const pts = _greatCircle(depLL[0], depLL[1], destLL[0], destLL[1], 40);
-  L.polyline(pts, { color: '#2dd4bf', weight: 2, opacity: 0.85 }).addTo(_routeLG);
-
-  // Waypoint circles along route
-  for (let i = 0; i < pts.length; i++) {
-    if (i % 4 === 0) {
-      L.circleMarker(pts[i], {
-        radius: 3, color: '#2dd4bf', fillColor: '#2dd4bf',
-        fillOpacity: i === 0 || i === pts.length - 1 ? 1 : 0.5,
-        weight: 1.5,
-      }).addTo(_routeLG);
-    }
+  const pts = _greatCircle(depLL[0], depLL[1], destLL[0], destLL[1], 60);
+  // ── 換日線修正 ────────────────────────────────────────────────────
+  // Leaflet Mercator 在 -180/+180 跳躍時會畫出橫跨整個地圖的直線。
+  // 正規化：讓相鄰兩點的經度差永遠 ≤ 180°（使經度單調遞增或遞減）。
+  for (let i = 1; i < pts.length; i++) {
+    while (pts[i][1] - pts[i-1][1] >  180) pts[i][1] -= 360;
+    while (pts[i][1] - pts[i-1][1] < -180) pts[i][1] += 360;
   }
-  // Dep/dest solid dots
+
+  L.polyline(pts, { color: '#2dd4bf', weight: 2.5, opacity: 0.9 }).addTo(_routeLG);
+
+  // 沿途小圓點（每 6 點一個）
+  for (let i = 0; i < pts.length; i += 6) {
+    L.circleMarker(pts[i], {
+      radius: 2.5, color: '#2dd4bf', fillColor: '#2dd4bf', fillOpacity: 0.7, weight: 1,
+    }).addTo(_routeLG);
+  }
+  // Dep/dest 實心圓
   L.circleMarker(depLL,  { radius: 5, color: '#0d0c0b', fillColor: '#2dd4bf', fillOpacity: 1, weight: 2 }).addTo(_routeLG);
   L.circleMarker(destLL, { radius: 5, color: '#0d0c0b', fillColor: '#2dd4bf', fillOpacity: 1, weight: 2 }).addTo(_routeLG);
-
-  _map?.setView([
-    (depLL[0] + destLL[0]) / 2,
-    (depLL[1] + destLL[1]) / 2,
-  ], 4);
+  // 不在這裡 setView — 讓 _fitAll() 根據實際 layer bounds 決定
 }
 
-// Spherical interpolation for great circle
+// 球面插值大圓路線（返回 [lat, lon] 陣列，lon 尚未正規化）
 function _greatCircle(lat1, lon1, lat2, lon2, n) {
   const R = Math.PI / 180;
   const φ1 = lat1*R, λ1 = lon1*R, φ2 = lat2*R, λ2 = lon2*R;
