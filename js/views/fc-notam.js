@@ -52,8 +52,9 @@ const _APT_LL = {
   OMDB:[25.2528,55.3644], OTHH:[25.2731,51.6080], OMAA:[24.4330,54.6511],
 };
 
-// ── Category definitions ─────────────────────────────────────────────
+// ── Category definitions（順序即清單顯示順序）─────────────────────────
 const _CAT = {
+  volcanic:   { label: 'VAA/火山',   color: '#db2777', fill: '#db277730' },
   restricted: { label: '限航/演習', color: '#ef4444', fill: '#ef444430' },
   uav:        { label: 'UAV/無人機', color: '#f97316', fill: '#f9731630' },
   obstacle:   { label: '障礙物',     color: '#a855f7', fill: '#a855f730' },
@@ -68,6 +69,7 @@ let _notams     = [];     // parsed notam objects
 let _visible    = new Set();
 let _layerMap   = {};     // notam.id → leaflet layer
 let _refLon     = null;   // 航路中心經度（用於 NOTAM 座標換日線對齊）
+let _collapsed  = new Set();  // 已摺疊的分類 key
 
 // 把經度調整到與 _refLon 最接近的等效值（±360），解決太平洋航線換日線問題
 function _wrapLon(lon) {
@@ -98,6 +100,7 @@ export function mount(container) {
 export function unmount() {
   if (_map) { _map.remove(); _map = null; }
   _notamLG = null; _routeLG = null; _notams = []; _visible.clear(); _layerMap = {};
+  _collapsed.clear(); _refLon = null;
 }
 
 // ─────────────────────────────────────────────────────────────────────
@@ -127,9 +130,6 @@ function _render(container) {
       </div>
 
       <div class="notam-map-wrap">
-        <div class="section-title" style="position:absolute;top:10px;left:12px;z-index:900;pointer-events:none">
-          🗺 NOTAM 座標地圖${hasAuto ? ' <span style="color:var(--teal);font-size:11px">(自動標示)</span>' : ''}
-        </div>
         <div id="notam-map"></div>
         <div class="notam-legend" id="notam-legend"></div>
       </div>
@@ -160,11 +160,27 @@ function _render(container) {
         font-size: 12px; color: var(--text3);
         padding: 4px 0 0 4px;
       }
-      .notam-list { display: flex; flex-direction: column; gap: 4px; }
+      .notam-list { display: flex; flex-direction: column; gap: 6px; }
+
+      /* 分類群組 */
+      .notam-group { border: 1px solid var(--border); border-radius: var(--radius-sm); overflow: hidden; }
+      .notam-group-head {
+        display: flex; align-items: center; gap: 8px;
+        padding: 8px 10px; cursor: pointer; user-select: none;
+        background: var(--card);
+      }
+      .notam-group-head:hover { background: rgba(255,255,255,0.04); }
+      .notam-grp-cb { flex-shrink: 0; accent-color: var(--gold); width: 14px; height: 14px; }
+      .notam-group-label { font-size: 12.5px; font-weight: 700; color: var(--text); flex: 1; }
+      .notam-group-count { font-size: 11px; color: var(--text3); font-family: var(--mono); }
+      .notam-chev { font-size: 11px; color: var(--text3); transition: transform 0.15s; transform: rotate(0deg); }
+      .notam-chev.open { transform: rotate(90deg); }
+      .notam-group-body { display: flex; flex-direction: column; gap: 3px; padding: 4px 6px 6px; }
+
       .notam-item {
         display: flex; align-items: flex-start; gap: 8px;
-        background: var(--card); border: 1px solid var(--border);
-        border-radius: var(--radius-sm); padding: 7px 9px; cursor: pointer;
+        background: rgba(255,255,255,0.02); border: 1px solid transparent;
+        border-radius: var(--radius-sm); padding: 5px 8px; cursor: pointer;
         transition: border-color 0.15s;
       }
       .notam-item:hover { border-color: var(--gold); }
@@ -214,13 +230,11 @@ function _render(container) {
 function _renderLegend() {
   const leg = document.getElementById('notam-legend');
   if (!leg) return;
-  leg.innerHTML = `
-    <div class="notam-leg-item"><div class="notam-leg-dot" style="background:#ef4444"></div> 限航/演習</div>
-    <div class="notam-leg-item"><div class="notam-leg-dot" style="background:#f97316"></div> UAV/無人機</div>
-    <div class="notam-leg-item"><div class="notam-leg-dot" style="background:#a855f7"></div> 障礙物 (Obstacle)</div>
-    <div class="notam-leg-item"><div class="notam-leg-dot" style="background:#3b82f6"></div> 一般區域 (Area)</div>
-    <div class="notam-leg-item"><div class="notam-leg-route"></div> 飛行航線</div>
-  `;
+  const cats = Object.values(_CAT).map(c =>
+    `<div class="notam-leg-item"><div class="notam-leg-dot" style="background:${c.color}"></div> ${c.label}</div>`
+  ).join('');
+  leg.innerHTML = cats +
+    `<div class="notam-leg-item"><div class="notam-leg-route"></div> 飛行航線</div>`;
 }
 
 // ─────────────────────────────────────────────────────────────────────
@@ -387,6 +401,10 @@ function _parseOneNotam(id, text) {
 
 // Classify by Q-code then keywords
 function _classifyNotam(text) {
+  const t = text.toUpperCase();
+  // VAA / 火山 最優先（OFP 會把火山灰諮詢以 VAA NOTAM 形式給出）
+  if (/\bVAA\b|VOLCAN|\bASH\b|VOLCANO/.test(t)) return 'volcanic';
+
   const q = text.match(/Q\)[^/\n]*\/Q([A-Z]{2,3})/);
   if (q) {
     const c = q[1];
@@ -395,7 +413,6 @@ function _classifyNotam(text) {
     if (c.startsWith('RD') || c.startsWith('DG') || c.startsWith('WE') || c.startsWith('WL')
         || c.startsWith('RT') || c.startsWith('RP')) return 'restricted';
   }
-  const t = text.toUpperCase();
   if (/\bUAV\b|\bUAS\b|\bUNMANN|\bDRONE\b/.test(t)) return 'uav';
   if (/\bOBSTACLE\b|\bCRANE\b|\bMAST\b|\bTOWER\b|\bCHIMNEY\b/.test(t)) return 'obstacle';
   if (/RESTRICT|PROHIBIT|DANGER AREA|MIL\s*(EXERC|TRAIN)|ROCKET|FRNG|\bGUN\b|ACTIV/.test(t)) return 'restricted';
@@ -489,6 +506,7 @@ function _applyNotams(notams) {
   _notams  = notams;
   _visible = new Set(notams.map(n => n.id));
   _layerMap = {};
+  _collapsed = new Set(notams.map(n => n.cat));  // 預設全部摺疊（精簡顯示）
 
   if (_notamLG) _notamLG.clearLayers();
 
@@ -548,6 +566,19 @@ function _buildPopup(n) {
 }
 
 // ─────────────────────────────────────────────────────────────────────
+// 單一 NOTAM 顯示/隱藏
+function _setNotamVisible(id, show) {
+  const layer = _layerMap[id];
+  if (show) {
+    _visible.add(id);
+    if (layer && !_notamLG.hasLayer(layer)) layer.addTo(_notamLG);
+  } else {
+    _visible.delete(id);
+    if (layer) _notamLG.removeLayer(layer);
+  }
+}
+
+// 分類摺疊列表
 function _renderList() {
   const el = document.getElementById('notam-list');
   if (!el) return;
@@ -557,35 +588,89 @@ function _renderList() {
     return;
   }
 
-  el.innerHTML = _notams.map(n => {
-    const c = _CAT[n.cat] || _CAT.area;
-    const checked = _visible.has(n.id) ? 'checked' : '';
-    return `<label class="notam-item" data-id="${n.id}">
-      <input type="checkbox" ${checked} data-id="${n.id}">
-      <span class="notam-dot" style="background:${c.color}"></span>
-      <div class="notam-item-body">
-        <div class="notam-item-id">${n.id}</div>
-        <div class="notam-item-sub">${n.shapeLabel}${n.alt ? ' · ' + n.alt : ''}</div>
-      </div>
-    </label>`;
-  }).join('');
+  // 依 _CAT 順序分組
+  let html = '';
+  for (const cat of Object.keys(_CAT)) {
+    const items = _notams.filter(n => n.cat === cat);
+    if (!items.length) continue;
+    const c = _CAT[cat];
+    const visCount = items.filter(n => _visible.has(n.id)).length;
+    const allOn  = visCount === items.length;
+    const someOn = visCount > 0 && !allOn;
+    const collapsed = _collapsed.has(cat);
 
-  // Checkbox toggle
-  el.querySelectorAll('input[type=checkbox]').forEach(cb => {
+    html += `<div class="notam-group" data-cat="${cat}">
+      <div class="notam-group-head">
+        <input type="checkbox" class="notam-grp-cb" data-cat="${cat}" ${allOn ? 'checked' : ''}>
+        <span class="notam-dot" style="background:${c.color}"></span>
+        <span class="notam-group-label">${c.label}</span>
+        <span class="notam-group-count">${visCount}/${items.length}</span>
+        <span class="notam-chev ${collapsed ? '' : 'open'}" data-cat="${cat}">▸</span>
+      </div>
+      <div class="notam-group-body" style="${collapsed ? 'display:none' : ''}">
+        ${items.map(n => `
+          <label class="notam-item" data-id="${n.id}">
+            <input type="checkbox" class="notam-item-cb" ${_visible.has(n.id) ? 'checked' : ''} data-id="${n.id}">
+            <div class="notam-item-body">
+              <div class="notam-item-id">${n.id}</div>
+              <div class="notam-item-sub">${n.shapeLabel}${n.alt ? ' · ' + n.alt : ''}</div>
+            </div>
+          </label>`).join('')}
+      </div>
+    </div>`;
+  }
+  el.innerHTML = html;
+
+  // 設定 group master checkbox 的 indeterminate 狀態
+  for (const cat of Object.keys(_CAT)) {
+    const items = _notams.filter(n => n.cat === cat);
+    if (!items.length) continue;
+    const visCount = items.filter(n => _visible.has(n.id)).length;
+    const cb = el.querySelector(`.notam-grp-cb[data-cat="${cat}"]`);
+    if (cb) cb.indeterminate = visCount > 0 && visCount < items.length;
+  }
+
+  // 個別 NOTAM checkbox
+  el.querySelectorAll('.notam-item-cb').forEach(cb => {
     cb.addEventListener('change', e => {
-      const id = e.target.dataset.id;
-      if (e.target.checked) {
-        _visible.add(id);
-        const layer = _layerMap[id];
-        if (layer && !_notamLG.hasLayer(layer)) layer.addTo(_notamLG);
-      } else {
-        _visible.delete(id);
-        const layer = _layerMap[id];
-        if (layer) _notamLG.removeLayer(layer);
-      }
+      _setNotamVisible(e.target.dataset.id, e.target.checked);
+      _refreshGroupHead(e.target.closest('.notam-group')?.dataset.cat);
       _updateCount();
     });
   });
+
+  // 群組 master checkbox（一鍵全選/全隱）
+  el.querySelectorAll('.notam-grp-cb').forEach(cb => {
+    cb.addEventListener('change', e => {
+      const cat = e.target.dataset.cat;
+      const show = e.target.checked;
+      _notams.filter(n => n.cat === cat).forEach(n => _setNotamVisible(n.id, show));
+      _renderList();
+      _updateCount();
+    });
+  });
+
+  // 摺疊/展開（點 header 或箭頭）
+  el.querySelectorAll('.notam-group-head').forEach(head => {
+    head.addEventListener('click', e => {
+      if (e.target.classList.contains('notam-grp-cb')) return;  // 勾選不觸發摺疊
+      const cat = head.parentElement.dataset.cat;
+      if (_collapsed.has(cat)) _collapsed.delete(cat); else _collapsed.add(cat);
+      _renderList();
+    });
+  });
+}
+
+// 只更新某分類 header 的勾選/計數狀態（不整個重繪）
+function _refreshGroupHead(cat) {
+  if (!cat) return;
+  const el = document.getElementById('notam-list');
+  const items = _notams.filter(n => n.cat === cat);
+  const visCount = items.filter(n => _visible.has(n.id)).length;
+  const cb = el.querySelector(`.notam-grp-cb[data-cat="${cat}"]`);
+  if (cb) { cb.checked = visCount === items.length; cb.indeterminate = visCount > 0 && visCount < items.length; }
+  const cnt = el.querySelector(`.notam-group[data-cat="${cat}"] .notam-group-count`);
+  if (cnt) cnt.textContent = `${visCount}/${items.length}`;
 }
 
 function _updateCount() {
