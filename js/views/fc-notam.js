@@ -67,6 +67,16 @@ let _routeLG    = null;   // route layer group
 let _notams     = [];     // parsed notam objects
 let _visible    = new Set();
 let _layerMap   = {};     // notam.id → leaflet layer
+let _refLon     = null;   // 航路中心經度（用於 NOTAM 座標換日線對齊）
+
+// 把經度調整到與 _refLon 最接近的等效值（±360），解決太平洋航線換日線問題
+function _wrapLon(lon) {
+  if (_refLon == null) return lon;
+  let l = lon;
+  while (l - _refLon >  180) l -= 360;
+  while (l - _refLon < -180) l += 360;
+  return l;
+}
 
 // ─────────────────────────────────────────────────────────────────────
 export function mount(container) {
@@ -273,6 +283,9 @@ function _drawRoute(f) {
     while (pts[i][1] - pts[i-1][1] >  180) pts[i][1] -= 360;
     while (pts[i][1] - pts[i-1][1] < -180) pts[i][1] += 360;
   }
+
+  // 記錄航路中心經度，供 NOTAM 座標對齊（_wrapLon）
+  _refLon = pts.reduce((s, p) => s + p[1], 0) / pts.length;
 
   L.polyline(pts, { color: '#14b8a6', weight: 2.5, opacity: 0.9 }).addTo(_routeLG);
 
@@ -497,23 +510,26 @@ function _buildLayer(n) {
   const popup = _buildPopup(n);
   const group = L.layerGroup();
 
+  // 經度對齊航路框架（解決太平洋換日線）
+  const pts = n.points.map(p => [p[0], _wrapLon(p[1])]);
+
   if (n.circles.length) {
     for (const circ of n.circles) {
-      L.circle([circ.lat, circ.lon], { ...opts, radius: circ.radiusNM * 1852 })
+      L.circle([circ.lat, _wrapLon(circ.lon)], { ...opts, radius: circ.radiusNM * 1852 })
         .bindPopup(popup, { maxWidth: 340 }).addTo(group);
     }
   }
-  if (n.points.length > 2) {
-    L.polygon(n.points, opts).bindPopup(popup, { maxWidth: 340 }).addTo(group);
-  } else if (n.points.length === 2) {
-    L.polyline(n.points, { color: c.color, weight: 2.5 })
+  if (pts.length > 2) {
+    L.polygon(pts, opts).bindPopup(popup, { maxWidth: 340 }).addTo(group);
+  } else if (pts.length === 2) {
+    L.polyline(pts, { color: c.color, weight: 2.5 })
       .bindPopup(popup, { maxWidth: 340 }).addTo(group);
-  } else if (n.points.length === 1) {
-    L.circleMarker(n.points[0], { ...opts, radius: 6, fillOpacity: 0.9 })
+  } else if (pts.length === 1) {
+    L.circleMarker(pts[0], { ...opts, radius: 6, fillOpacity: 0.9 })
       .bindPopup(popup, { maxWidth: 340 }).addTo(group);
   }
 
-  if (!n.circles.length && !n.points.length) return null;
+  if (!n.circles.length && !pts.length) return null;
   return group;
 }
 
