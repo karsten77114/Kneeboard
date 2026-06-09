@@ -895,7 +895,7 @@ function _renderSigwx(panel) {
         </div>
         <div style="background:#0a0f18">
           <iframe id="typhoon-iframe"
-            src="${CWA_GIS_URL}"
+            src="${CWA_GIS_URL}?_t=${Date.now()}"
             style="width:100%;height:calc(100vh - 260px);min-height:400px;border:none;display:block"
             title="CWA Typhoon GIS" loading="lazy"
             sandbox="allow-scripts allow-same-origin allow-forms allow-popups">
@@ -908,7 +908,7 @@ function _renderSigwx(panel) {
             </div>
           </div>
         </div>
-        <div style="padding:5px 14px 8px;font-size:11px;color:var(--text3)">中央氣象署 CWA · 無颱風時地圖為空白屬正常</div>
+        <div style="padding:5px 14px 8px;font-size:11px;color:var(--text3)">中央氣象署 CWA 即時資料（與航班日期無關）· 顯示最新颱風；颱風結束後 CWA 仍會保留最後一次路徑直到新颱風生成</div>
       </div>
     </div>`;
 
