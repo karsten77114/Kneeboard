@@ -230,8 +230,10 @@ function _render(container) {
 function _renderLegend() {
   const leg = document.getElementById('notam-legend');
   if (!leg) return;
-  const cats = Object.values(_CAT).map(c =>
-    `<div class="notam-leg-item"><div class="notam-leg-dot" style="background:${c.color}"></div> ${c.label}</div>`
+  const cats = Object.entries(_CAT).map(([k, c]) =>
+    k === 'volcanic'
+      ? `<div class="notam-leg-item"><span style="font-size:13px;line-height:1">🌋</span> ${c.label}</div>`
+      : `<div class="notam-leg-item"><div class="notam-leg-dot" style="background:${c.color}"></div> ${c.label}</div>`
   ).join('');
   leg.innerHTML = cats +
     `<div class="notam-leg-item"><div class="notam-leg-route"></div> 飛行航線</div>`;
@@ -489,11 +491,19 @@ function _extractCoords(text) {
     if (lat != null && lon != null && nm > 0) circles.push({ lat, lon, radiusNM: nm });
   }
 
-  // Coordinate pairs: DDMMSS.ssN DDDMMSS.ssE (various formats)
+  // Coordinate pairs: DDMMSS.ssN DDDMMSS.ssE（數字在前，如 241554N 1203715E）
   const cpRe = /(\d{4,9}(?:\.\d+)?)([NS])\s*[\/]?\s*(\d{5,10}(?:\.\d+)?)([EW])/g;
   while ((m = cpRe.exec(text)) !== null) {
     const lat = _parseCoord(m[1], m[2]);
     const lon = _parseCoord(m[3], m[4]);
+    if (lat != null && lon != null) points.push([lat, lon]);
+  }
+
+  // 字母在前格式（VAAC 火山諮詢常見，如 PSN: N3136 E13039）
+  const cpRe2 = /\b([NS])(\d{4,6}(?:\.\d+)?)\s*[\/]?\s*([EW])(\d{5,7}(?:\.\d+)?)\b/g;
+  while ((m = cpRe2.exec(text)) !== null) {
+    const lat = _parseCoord(m[2], m[1]);
+    const lon = _parseCoord(m[4], m[3]);
     if (lat != null && lon != null) points.push([lat, lon]);
   }
 
@@ -553,28 +563,56 @@ function _buildLayer(n) {
   const opts = { color: c.color, fillColor: c.fill || c.color, fillOpacity: 0.25, weight: 1.5, opacity: 0.9 };
   const popup = _buildPopup(n);
   const group = L.layerGroup();
+  const isVolcano = n.cat === 'volcanic';
 
   // 經度對齊航路框架（解決太平洋換日線）
   const pts = n.points.map(p => [p[0], _wrapLon(p[1])]);
 
   if (n.circles.length) {
     for (const circ of n.circles) {
-      L.circle([circ.lat, _wrapLon(circ.lon)], { ...opts, radius: circ.radiusNM * 1852 })
+      const center = [circ.lat, _wrapLon(circ.lon)];
+      L.circle(center, { ...opts, radius: circ.radiusNM * 1852 })
         .bindPopup(popup, { maxWidth: 340 }).addTo(group);
+      if (isVolcano) _volcanoMarker(center, popup).addTo(group);
     }
   }
   if (pts.length > 2) {
     L.polygon(pts, opts).bindPopup(popup, { maxWidth: 340 }).addTo(group);
+    if (isVolcano) _volcanoMarker(_centroid(pts), popup).addTo(group);
   } else if (pts.length === 2) {
     L.polyline(pts, { color: c.color, weight: 2.5 })
       .bindPopup(popup, { maxWidth: 340 }).addTo(group);
+    if (isVolcano) _volcanoMarker(_centroid(pts), popup).addTo(group);
   } else if (pts.length === 1) {
-    L.circleMarker(pts[0], { ...opts, radius: 6, fillOpacity: 0.9 })
-      .bindPopup(popup, { maxWidth: 340 }).addTo(group);
+    if (isVolcano) {
+      _volcanoMarker(pts[0], popup).addTo(group);
+    } else {
+      L.circleMarker(pts[0], { ...opts, radius: 6, fillOpacity: 0.9 })
+        .bindPopup(popup, { maxWidth: 340 }).addTo(group);
+    }
   }
 
   if (!n.circles.length && !pts.length) return null;
   return group;
+}
+
+// 火山符號標記（🌋），用於 VAA/火山類別 NOTAM 的位置
+function _volcanoMarker(latlng, popup) {
+  const icon = L.divIcon({
+    className: 'notam-volcano-icon',
+    html: '<div style="font-size:22px;line-height:1;filter:drop-shadow(0 1px 2px rgba(0,0,0,0.45))">🌋</div>',
+    iconSize: [26, 26],
+    iconAnchor: [13, 22],
+  });
+  return L.marker(latlng, { icon, zIndexOffset: 1000 }).bindPopup(popup, { maxWidth: 340 });
+}
+
+// 多邊形/線段的幾何中心（取頂點平均）
+function _centroid(pts) {
+  const n = pts.length;
+  const lat = pts.reduce((s, p) => s + p[0], 0) / n;
+  const lon = pts.reduce((s, p) => s + p[1], 0) / n;
+  return [lat, lon];
 }
 
 function _buildPopup(n) {
