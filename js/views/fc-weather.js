@@ -1038,9 +1038,13 @@ async function _renderTurbli(panel) {
       return;
     }
     body.innerHTML = _turbliChartSvg(d) + `
-      <div style="display:flex;gap:14px;flex-wrap:wrap;font-size:11px;color:var(--text3);padding:8px 10px 4px">
+      <div style="display:flex;gap:14px;flex-wrap:wrap;font-size:11px;color:var(--text3);padding:8px 10px 2px">
         <span><span style="display:inline-block;width:14px;height:2px;background:#2c3e6b;vertical-align:middle;margin-right:4px"></span>沿預期航路亂流</span>
         <span><span style="display:inline-block;width:12px;height:8px;background:rgba(150,160,180,0.4);vertical-align:middle;margin-right:4px"></span>±2000ft / ±40nm 偏航範圍</span>
+      </div>
+      <div style="font-size:10.5px;color:var(--text3);line-height:1.5;padding:2px 10px 8px">
+        縱軸為亂流強度 EDR（&lt;20 輕度、20–40 中度、&gt;40 中–強）；橫軸為起飛後經過的飛行時數。
+        預報沿「相同航線與機型最近一班」的航跡計算，來源 ECMWF · turbli.com。
       </div>`;
   } catch (e) {
     body.innerHTML = `
@@ -1057,8 +1061,8 @@ async function _renderTurbli(panel) {
 function _turbliChartSvg(d) {
   const line = d.line, up = d.upper || [], lo = d.lower || [];
   const n = line.length;
-  const W = 900, H = 460;
-  const mL = 64, mR = 18, mT = 46, mB = 46;
+  const W = 900, H = 470;
+  const mL = 64, mR = 18, mT = 46, mB = 56;
   const pw = W - mL - mR, ph = H - mT - mB;
   const yMax = 60;
   const X = i => mL + (i / (n - 1)) * pw;
@@ -1099,19 +1103,44 @@ function _turbliChartSvg(d) {
   for (let i = 0; i < n; i++) linePts += `${X(i).toFixed(1)},${Y(line[i]).toFixed(1)} `;
   const mainLine = `<polyline points="${linePts.trim()}" fill="none" stroke="#2c3e6b" stroke-width="2.2"/>`;
 
-  // X 軸標籤（dep/dest + Flight hours）
+  // X 軸：以 time（UNIX 秒）算「經過飛行時數」，每 30 分鐘一刻度、整點加垂直格線與小飛機
+  const axisY = mT + ph;
+  let xTicks = '';
+  const time = d.time;
+  if (time && time.length === n && time[n-1] > time[0]) {
+    const totalH = (time[n-1] - time[0]) / 3600;
+    for (let h = 0; h <= totalH + 1e-6; h += 0.5) {
+      const frac = h / totalH;
+      if (frac > 1.0001) break;
+      const x = mL + frac * pw;
+      const isHour = Math.abs(h - Math.round(h)) < 1e-6;
+      if (isHour) {
+        xTicks += `<line x1="${x.toFixed(1)}" y1="${mT}" x2="${x.toFixed(1)}" y2="${axisY}" stroke="#c8d0dc" stroke-width="0.8" stroke-dasharray="3 3"/>`;
+        xTicks += `<text x="${x.toFixed(1)}" y="${axisY-3}" font-size="13" fill="#aeb6c4" text-anchor="middle">✈</text>`;
+        xTicks += `<text x="${x.toFixed(1)}" y="${axisY+17}" font-size="12" fill="#555" text-anchor="middle" font-weight="700">${Math.round(h)}</text>`;
+      } else {
+        xTicks += `<text x="${x.toFixed(1)}" y="${axisY+16}" font-size="9.5" fill="#9aa3b2" text-anchor="middle">:30</text>`;
+      }
+    }
+  }
+  // dep / dest 端點 + 軸標題
   const xLabels = `
-    <text x="${mL}" y="${H-14}" font-size="12" fill="#444" text-anchor="start" font-weight="700">${d.dep}</text>
-    <text x="${W-mR}" y="${H-14}" font-size="12" fill="#444" text-anchor="end" font-weight="700">${d.dest}</text>
-    <text x="${mL+pw/2}" y="${H-14}" font-size="11" fill="#888" text-anchor="middle">Flight hours</text>`;
+    <text x="${mL}" y="${axisY+36}" font-size="12.5" fill="#333" text-anchor="start" font-weight="800">${d.dep}</text>
+    <text x="${W-mR}" y="${axisY+36}" font-size="12.5" fill="#333" text-anchor="end" font-weight="800">${d.dest}</text>
+    <text x="${mL+pw/2}" y="${axisY+36}" font-size="11" fill="#888" text-anchor="middle">Flight hours（飛行經過時數）</text>`;
 
-  const warnColor = /smooth|light/i.test(d.warning||'') ? '#16a34a' : /moderate/i.test(d.warning||'') ? '#e08a3c' : '#dc2626';
-  const header = `<text x="${W/2}" y="26" font-size="14" fill="${warnColor}" text-anchor="middle" font-weight="700">${(d.warning||'').replace(/[<>&]/g,'')}</text>`;
+  // 說明文字（警示）：彩色圓點 + 句子，對齊原圖
+  const warn = (d.warning || '').replace(/[<>&]/g, '');
+  const warnColor = /smooth|light/i.test(warn) ? '#16a34a' : /moderate/i.test(warn) ? '#e0902c' : /severe|strong/i.test(warn) ? '#dc2626' : '#6b7280';
+  const header = warn
+    ? `<circle cx="${W/2 - warn.length*3.4 - 14}" cy="22" r="7" fill="${warnColor}"/>
+       <text x="${W/2 + 8}" y="27" font-size="15" fill="#333" text-anchor="middle" font-weight="700">${warn}</text>`
+    : '';
 
   return `<div style="background:#fff;border-radius:8px;overflow:hidden">
     <svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;display:block">
       <rect x="0" y="0" width="${W}" height="${H}" fill="#fff"/>
-      ${zoneRects}${yTicks}${band}${mainLine}${zoneBar}${zoneLabels}${xLabels}${header}
+      ${zoneRects}${yTicks}${xTicks}${band}${mainLine}${zoneBar}${zoneLabels}${xLabels}${header}
     </svg>
   </div>`;
 }

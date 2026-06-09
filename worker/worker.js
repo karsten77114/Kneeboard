@@ -1742,9 +1742,13 @@ async function handleRequest(request, env) {
           try { return JSON.parse(m[1]); } catch(e){ return null; }
         };
         // 主線 CAT 為字串包陣列：var CAT = ("[16.4, 16.5, ...]")...
-        let line = null;
-        const cm = html.match(/var\s+CAT\s*=\s*\("(\[[^"]*\])"\)/);
-        if (cm) { try { line = JSON.parse(cm[1]); } catch(e){} }
+        const strWrapArr = name => {
+          const m = html.match(new RegExp('var\\s+'+name+'\\s*=\\s*\\("(\\[[^"]*\\])"\\)'));
+          if (!m) return null;
+          try { return JSON.parse(m[1]).map(Number); } catch(e){ return null; }
+        };
+        const line  = strWrapArr('CAT');
+        const time  = strWrapArr('time');   // 每個點的 UNIX epoch 秒（字串包陣列）
         const upper = numArr('CAT_upper');
         const lower = numArr('CAT_lower');
         const alt   = numArr('alt');  // 高度（FL）序列，對應每個點
@@ -1755,7 +1759,7 @@ async function handleRequest(request, env) {
           ok: true, url: turbliUrl,
           flight: fm ? fm[1] : `JX ${flt}`,
           warning: wm ? wm[1] : null,
-          line, upper, lower, alt,
+          line, upper, lower, alt, time,
           dep, dest,
         }), { headers: { ...headers, 'Content-Type':'application/json', 'Cache-Control':'private, max-age=1800' } });
       } catch (e) {
