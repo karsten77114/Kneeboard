@@ -1,0 +1,11 @@
+name: Kneeboard
+type: pwa
+repo: karsten77114/Kneeboard.git
+working_root: .
+memory:
+  - ../../../000_Agent/memory/project_kneeboard.md
+rules:
+  - Work from this folder for Kneeboard code.
+  - Do not commit Kneeboard changes from the parent Karsten-Agent repo.
+  - For Logbook integration, use a shared spec under ../../../100_Todo/plans/.
+  - Do not write secrets in this repo.

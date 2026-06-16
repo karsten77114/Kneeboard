@@ -1,0 +1,1 @@
+../../../000_Agent/templates/project-entry/AGENTS.md
