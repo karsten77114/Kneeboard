@@ -1254,7 +1254,7 @@ function _parseRosterData({ rosterAllocs, activities, staffInfo }) {
           std_utc:      _isoToHHMM(new Date(da.StartDatetime).toISOString()), // UTC
           sta_utc:      _isoToHHMM(new Date(da.EndDatetime).toISOString()),
           blockTime:    block,
-          tripDate:     (da.TripDate || '').replace(/-/g, ''),  // "20260523"
+          tripDate:     _isoToDateStr(da.StartDatetime),  // actual departure date (TZ-aware, fixes cross-midnight trips)
         });
       }
 
