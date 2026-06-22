@@ -249,6 +249,62 @@ async function _geminiAnalyze(apiKey, contentParts) {
   }
 }
 
+// ── Claude（Anthropic 官方 API）：多模態公告分析 ──────────────────────
+// Gemini parts（text / inline_data 圖片/PDF）→ Claude content blocks
+function _partsToClaudeContent(parts) {
+  return parts.map(p => {
+    if (p.text != null) return { type: 'text', text: p.text };
+    if (p.inline_data) {
+      const { mime_type, data } = p.inline_data;
+      if (mime_type === 'application/pdf') {
+        return { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data } };
+      }
+      return { type: 'image', source: { type: 'base64', media_type: mime_type, data } };
+    }
+    return null;
+  }).filter(Boolean);
+}
+
+async function _claudeAnalyze(apiKey, parts, systemPrompt, maxTokens, expectArray) {
+  const resp = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
+    body: JSON.stringify({
+      model: 'claude-opus-4-8',
+      max_tokens: maxTokens,
+      system: systemPrompt,
+      messages: [{ role: 'user', content: _partsToClaudeContent(parts) }],
+    }),
+  });
+  if (!resp.ok) {
+    const err = await resp.text().catch(() => '');
+    throw new Error(`Claude ${resp.status}: ${err.substring(0, 200)}`);
+  }
+  const data = await resp.json();
+  if (data.stop_reason === 'refusal') throw new Error('Claude 安全分類器拒絕回應');
+  const raw = (data.content || []).filter(b => b.type === 'text').map(b => b.text).join('') || (expectArray ? '[]' : '{}');
+  const clean = raw.replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/```\s*$/, '').trim();
+  const result = JSON.parse(clean);
+  return expectArray ? (Array.isArray(result) ? result : [result]) : result;
+}
+
+// 統一入口：有 ANTHROPIC_API_KEY 用 Claude（失敗退回 Gemini）；否則 Gemini
+async function _aiAnalyzeBatch(env, parts) {
+  if (env.ANTHROPIC_API_KEY) {
+    try { return await _claudeAnalyze(env.ANTHROPIC_API_KEY, parts, _BATCH_NOTICE_PROMPT, 8192, true); }
+    catch (e) { if (env.GEMINI_API_KEY) { console.error('Claude 失敗退回 Gemini：', e.message); return await _geminiAnalyzeBatch(env.GEMINI_API_KEY, parts); } throw e; }
+  }
+  return _geminiAnalyzeBatch(env.GEMINI_API_KEY, parts);
+}
+
+async function _aiAnalyze(env, parts) {
+  if (env.ANTHROPIC_API_KEY) {
+    try { return await _claudeAnalyze(env.ANTHROPIC_API_KEY, parts, _NOTICE_PROMPT, 2048, false); }
+    catch (e) { if (env.GEMINI_API_KEY) { console.error('Claude 失敗退回 Gemini：', e.message); return await _geminiAnalyze(env.GEMINI_API_KEY, parts); } throw e; }
+  }
+  return _geminiAnalyze(env.GEMINI_API_KEY, parts);
+}
+
 // ── UUID ──────────────────────────────────────────────────────────
 
 function generateUUID() {
@@ -2166,7 +2222,7 @@ async function handleRequest(request, env) {
                     : 'text';
 
       if (isBatch) {
-        const analyzedList = await _geminiAnalyzeBatch(env.GEMINI_API_KEY, parts);
+        const analyzedList = await _aiAnalyzeBatch(env, parts);
         const now = new Date().toISOString();
         const list = await _noticesGet(env);
         const newNotices = analyzedList
@@ -2179,7 +2235,7 @@ async function handleRequest(request, env) {
         });
       }
 
-      const analyzed = await _geminiAnalyze(env.GEMINI_API_KEY, parts);
+      const analyzed = await _aiAnalyze(env, parts);
       const rawTextForStorage = parts.find(p => p.text && p.text.includes('公告內容:'))?.text?.split('公告內容:\n')[1] || '';
 
       // 使用者在 Shortcut 傳入的 source 映射成合法 source_tag
