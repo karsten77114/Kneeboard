@@ -1106,12 +1106,16 @@ async function _pegasysWsRoster(jwt, employeeId, crewOpts = {}) {
     let   crewTargets      = [];   // [{ activityId, recordNo }]
     let   crewIdx          = 0;
     let   crewCurStaff     = [];   // 當前請求湧入的 staff（累積到收到 ack）
+    let   crewCurAssign    = [];   // 當前請求湧入的 RosterAllocation 指派（含 Role/RANK）
     let   crewReqTimer     = null; // 單一請求逾時
     const crewByActivity   = {};   // activityId → [staff...]
+    const assignByActivity = {};   // activityId → [allocation 指派...]
+    const allCrewAnnos     = [];   // 全域 annotation 池（以 RecordNoRef 連結，與抵達時序無關）
 
     const _sendCrewReq = () => {
       if (crewIdx >= crewTargets.length) { finalize('crew_done'); return; }
       crewCurStaff = [];
+      crewCurAssign = [];
       const t = crewTargets[crewIdx];
       const idVal = crewIdType === 'recordNo' ? t.recordNo : t.activityId;
       ws.send(_mkBase('ReqCrewListForActivity', { ClientGuid: clientGuid, [crewField]: idVal }));
@@ -1123,7 +1127,10 @@ async function _pegasysWsRoster(jwt, employeeId, crewOpts = {}) {
     const _advanceCrew = () => {
       clearTimeout(crewReqTimer);
       const t = crewTargets[crewIdx];
-      if (t) crewByActivity[t.activityId] = crewCurStaff.slice();
+      if (t) {
+        crewByActivity[t.activityId]   = crewCurStaff.slice();
+        assignByActivity[t.activityId] = crewCurAssign.slice();
+      }
       crewIdx++;
       _sendCrewReq();
     };
@@ -1176,32 +1183,8 @@ async function _pegasysWsRoster(jwt, employeeId, crewOpts = {}) {
       const activities   = activityMsgs.flatMap(m => m.DataList || []);
       const staffInfo    = staffMemberMsgs.flatMap(m => m.DataList || [])[0] || null;
 
-      // 任何可能含 crew 的訊息（名稱含 Crew/Trip/Pairing/Duty）
-      const KNOWN = new Set(['RpyRosterAllocationList','RpyActivityList','RpyStaffMemberList',
-                             'RpyLogin','RpyHeartbeat','RpyNotificationCountList']);
-      const crewCandidates = {};
-      for (const m of allMsgs) {
-        const n = m.SkyNet_MsgName;
-        if (!KNOWN.has(n)) {
-          if (!crewCandidates[n]) crewCandidates[n] = {
-            keys: Object.keys(m),
-            sample: m.DataList ? JSON.stringify((m.DataList || []).slice(0,1)).slice(0,400) : JSON.stringify(m).slice(0,400),
-          };
-        }
-      }
-
-      // 暴露第一個 Activity 的第一個 Duty 的 DutyActivities[0] 完整 key 清單
-      const firstAct = activities[0];
-      const firstDuty = firstAct?.Duties?.[0];
-      const firstDA = firstDuty?.DutyActivities?.find(d => d.DutyActivityType === 'F');
-
-      // crewByActivity: activityId → 解析後的 crew 成員清單
-      const crewParsed = {};
       let crewTotal = 0;
-      for (const [actId, staffArr] of Object.entries(crewByActivity)) {
-        crewParsed[actId] = (staffArr || []).map(_parseCrewStaff);
-        crewTotal += crewParsed[actId].length;
-      }
+      for (const arr of Object.values(crewByActivity)) crewTotal += (arr || []).length;
 
       resolve({
         loginError,
@@ -1211,11 +1194,10 @@ async function _pegasysWsRoster(jwt, employeeId, crewOpts = {}) {
         activities,
         staffInfo,
         staffRecordNo:   staffInfo?.RecordNo ?? null,
-        crewByActivity:  crewParsed,
-        _crewCandidates: crewCandidates,
-        _firstDAKeys:    firstDA ? Object.keys(firstDA) : [],
-        _firstDutyKeys:  firstDuty ? Object.keys(firstDuty) : [],
-        _crewPhase:      { expected: expectedCrew, done: crewIdx, field: crewField, idType: crewIdType, totalCrew: crewTotal },
+        crewByActivity,        // activityId → [raw staff records]
+        assignByActivity,      // activityId → [RosterAllocation 指派]
+        allCrewAnnos,          // 全域 annotation 池（RecordNoRef 連結）
+        _crewPhase:      { expected: expectedCrew, done: crewIdx, totalCrew: crewTotal, annos: allCrewAnnos.length },
         _crewTrace:      crewPhaseTrace.slice(0, 40),
       });
     };
@@ -1270,6 +1252,21 @@ async function _pegasysWsRoster(jwt, employeeId, crewOpts = {}) {
       // crew 階段：crew 名單以 RpyStaffMemberList(N) 形式回推，累積到當前請求
       if (crewPhaseActive && name === 'RpyStaffMemberList') {
         for (const s of (msg.DataList || [])) crewCurStaff.push(s);
+      }
+      // crew 階段：RpyRosterAllocationList(N) = 每位組員對此 activity 的指派
+      // （含 Role / 位置 / OPR-DHD 等；用 StaffId join 到 staff）
+      if (crewPhaseActive && name === 'RpyRosterAllocationList') {
+        for (const a of (msg.DataList || [])) crewCurAssign.push(a);
+        if (!_crewAssignSample && (msg.DataList || []).length) {
+          _crewAssignSample = JSON.stringify(msg.DataList.slice(0, 2)).slice(0, 2000);
+        }
+      }
+      // crew 階段：annotations 帶 per-leg WorkCode(OPR/DHD/OET)+Position，
+      // 以 RecordNoRef 對應到 RosterAllocation 指派 → 收進全域池（時序無關）
+      if (crewPhaseActive && name === 'RpyAnalysisEntityAnnotationList') {
+        for (const an of (msg.DataList || [])) {
+          if (an.EntityType === 'ROSTER_ALLOCATION') allCrewAnnos.push(an);
+        }
       }
 
       // RpyCrewListForActivity — 該請求的 ack（資料已先到）→ 收尾並發下一個
@@ -1333,6 +1330,59 @@ function _parseCrewStaff(s) {
   };
 }
 
+// 把一個 activity 的 staff + 指派 + annotations 組成「每段(leg) crew map」
+//   staff:       RpyStaffMemberList → 身分(姓名)
+//   assignments: 該 activity 的 RosterAllocation → RANK + CREW_GROUP_CODE，RecordNo 為鍵
+//   annotations: rRA_DISPLAY_WORK_CODE / rRA_DISPLAY_POSITION，依 SequenceNumber 分每段
+//                （SequenceNumber 0 = pairing 名稱；1,2,... = 第 1,2,... 個航段）
+// 回傳：{ [seqNumber]: [ crewMember... ] }
+function _buildLegCrewMap(staff, assignments, annoByRec) {
+  const staffById = {};
+  for (const s of (staff || [])) staffById[s.StaffId] = s;
+
+  const legMap = {};
+  for (const a of (assignments || [])) {
+    const an = annoByRec[a.RecordNo];
+    if (!an) continue;
+    const role      = a.Role || [];
+    const rank      = role.find(r => r.SkillType === 'RANK')?.SkillName || '';
+    const crewGroup = (a.Attrs?.StringAttributes || []).find(x => x.Key === 'CREW_GROUP_CODE')?.Value || null;
+    const s         = staffById[a.StaffId] || {};
+
+    // 依 SequenceNumber 收每段的 workcode + position
+    const seqs = {};
+    for (const attr of (an.Attrs?.StringAttributes || [])) {
+      if (attr.Key === 'rRA_DISPLAY_WORK_CODE') (seqs[attr.SequenceNumber] ||= {}).workCode = attr.Value;
+      if (attr.Key === 'rRA_DISPLAY_POSITION')  (seqs[attr.SequenceNumber] ||= {}).position = attr.Value;
+    }
+    for (const [seq, info] of Object.entries(seqs)) {
+      const sn = Number(seq);
+      if (!sn || sn < 1) continue;   // 0 = pairing 名稱，跳過
+      (legMap[sn] ||= []).push({
+        staffId:       a.StaffId || '',
+        firstName:     s.FirstName || '',
+        lastName:      s.LastName || '',
+        preferredName: s.PreferredName || '',
+        rank,                                  // CAP/FO/SFO/TCAP/SC/PR/CC...
+        position:      info.position || '',    // PIC/P1, P2, DHD(LHS), CIC, SC, CC, OE...
+        workCode:      info.workCode || '',    // OPR / DHD / OET
+        isCockpit:     crewGroup === '1',
+      });
+    }
+  }
+  return legMap;
+}
+
+// 駕駛艙「在線(operating)」crew，PIC 排第一
+function _cockpitOperating(legCrew) {
+  const cockpit = (legCrew || []).filter(m => m.isCockpit && m.workCode === 'OPR');
+  return cockpit.sort((a, b) => {
+    const aPic = /PIC|P1/i.test(a.position) ? 0 : 1;
+    const bPic = /PIC|P1/i.test(b.position) ? 0 : 1;
+    return aPic - bPic;
+  });
+}
+
 function _blockMinutes(depIso, arrIso) {
   try {
     const diff = new Date(arrIso) - new Date(depIso);
@@ -1350,7 +1400,10 @@ function _isoToDateStr(iso) {
   return iso ? iso.slice(0, 10).replace(/-/g, '') : '';
 }
 
-function _parseRosterData({ rosterAllocs, activities, staffInfo, crewByActivity = {} }) {
+function _parseRosterData({ rosterAllocs, activities, staffInfo, crewByActivity = {}, assignByActivity = {}, allCrewAnnos = [] }) {
+  // 全域 annotation 索引：RecordNoRef → annotation（與抵達時序無關）
+  const annoByRec = {};
+  for (const an of allCrewAnnos) annoByRec[an.RecordNoRef] = an;
   if (!rosterAllocs || rosterAllocs.length === 0) {
     return {
       _debug: true, _reason: 'no_roster_allocs',
@@ -1375,6 +1428,14 @@ function _parseRosterData({ rosterAllocs, activities, staffInfo, crewByActivity 
     const activity = actMap[alloc.ActivityId];
     if (!activity || !activity.Duties) continue;
 
+    // 此 pairing 的每段(leg) crew map（SequenceNumber → crew）
+    const legMap = _buildLegCrewMap(
+      crewByActivity[alloc.ActivityId],
+      assignByActivity[alloc.ActivityId],
+      annoByRec,
+    );
+    let legSeq = 0;   // 跨整個 pairing 的航段序號（對齊 annotation SequenceNumber）
+
     // 逐個 Duty（每個出勤日）
     for (const duty of activity.Duties) {
       if (duty.DutyType !== 'TOUR_OF_DUTY') continue;
@@ -1392,6 +1453,9 @@ function _parseRosterData({ rosterAllocs, activities, staffInfo, crewByActivity 
         const fn = da.TripId || '';
         if (!fn) continue;
 
+        legSeq++;
+        const cockpit = _cockpitOperating(legMap[legSeq]);  // 該段在線駕駛艙，PIC 第一
+
         const block = _blockMinutes(da.StartDatetime, da.EndDatetime);
         legs.push({
           flightNumber: fn,                           // "JX761"
@@ -1403,6 +1467,7 @@ function _parseRosterData({ rosterAllocs, activities, staffInfo, crewByActivity 
           sta_utc:      _isoToHHMM(new Date(da.EndDatetime).toISOString()),
           blockTime:    block,
           tripDate:     _isoToDateStr(da.StartDatetime),  // actual departure date (TZ-aware, fixes cross-midnight trips)
+          cockpit,                                          // 在線駕駛艙組員（PIC 第一）
         });
       }
 
@@ -1411,12 +1476,21 @@ function _parseRosterData({ rosterAllocs, activities, staffInfo, crewByActivity 
       // 日期：第一腿的 TripDate（排班日）或 duty 開始日
       const date = legs[0].tripDate || dutyDate;
 
+      // pairing 層級 cockpit：此 duty 各段在線駕駛艙的聯集（去重，PIC 第一）
+      const seenIds = new Set();
+      const dayCockpit = [];
+      for (const lg of legs) {
+        for (const m of (lg.cockpit || [])) {
+          if (m.staffId && !seenIds.has(m.staffId)) { seenIds.add(m.staffId); dayCockpit.push(m); }
+        }
+      }
+
       pairings.push({
         date,
         reportTime,
         reportAirport,
         legs,
-        crew: crewByActivity[alloc.ActivityId] || [],
+        cockpit: dayCockpit,    // 當日在線駕駛艙（Roster 顯示 PIC 用）
         rawCodes: [_getStrAttr(alloc.Attrs, 'ACTIVITY_CODE') || alloc.ActivityId],
       });
     }
@@ -2866,10 +2940,12 @@ async function handleRequest(request, env) {
 
       // ── 解析班表（附帶 crew）──────────────────────────────────
       const pairings = _parseRosterData({
-        rosterAllocs:   wsResult.rosterAllocs || [],
-        activities:     wsResult.activities   || [],
-        staffInfo:      wsResult.staffInfo,
-        crewByActivity: wsResult.crewByActivity || {},
+        rosterAllocs:     wsResult.rosterAllocs || [],
+        activities:       wsResult.activities   || [],
+        staffInfo:        wsResult.staffInfo,
+        crewByActivity:   wsResult.crewByActivity   || {},
+        assignByActivity: wsResult.assignByActivity || {},
+        allCrewAnnos:     wsResult.allCrewAnnos     || [],
       });
 
       const result = {
@@ -2885,7 +2961,6 @@ async function handleRequest(request, env) {
         _debug_alloc_count:    (wsResult.rosterAllocs || []).length,
         _debug_activity_count: (wsResult.activities  || []).length,
         _debug_crewPhase:      wsResult._crewPhase       || null,
-        _debug_crewTrace:      wsResult._crewTrace       || [],
       };
 
       // 快取 6 小時（只在有真實 pairings 時）
