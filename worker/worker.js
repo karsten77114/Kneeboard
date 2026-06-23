@@ -1018,7 +1018,12 @@ function _jwtPayload(token) {
   } catch { return {}; }
 }
 
-async function _pegasysWsRoster(jwt, employeeId) {
+async function _pegasysWsRoster(jwt, employeeId, crewOpts = {}) {
+  // crewOpts: { field: 'ActivityId', idType: 'activityId'|'recordNo' }
+  // 實測（逆向 PegaSys SPA 真實 frame）：{ ClientGuid, ActivityId:<string> }
+  const crewField  = crewOpts.field  || 'ActivityId';
+  const crewIdType = crewOpts.idType || 'activityId';
+
   // ── JWT 中取 StaffId（避免依賴 RpyLogin Attrs）───────────────
   const jwtClaims = _jwtPayload(jwt);
   // Sabre Horizon 常見欄位：EmployeeRecNo, StaffRecNo, staffId, userId, sub...
@@ -1080,17 +1085,84 @@ async function _pegasysWsRoster(jwt, employeeId) {
   // 最後一條訊息到達後等 SETTLE_MS，確認初始推送結束
   // 或 HARD_MS 硬超時
   return new Promise((resolve, reject) => {
-    const HARD_MS   = 18000;
+    const HARD_MS   = 45000;   // 序列化 crew 抓取（最多 ~19 班 × ack）需較長上限
     const SETTLE_MS = 2000;
     let hardTimer   = null;
     let settleTimer = null;
     let resolved    = false;
+
+    // ── Crew 階段狀態 ───────────────────────────────────────────
+    // 初始推送 settle 後，「逐一」對每個 Pairing 送 ReqCrewListForActivity。
+    // crew 名單其實以 RpyStaffMemberList(N) 形式回推（RpyCrewListForActivity 僅是 ack，無資料）。
+    // 因為回推訊息不帶 ActivityId，必須序列化（一次一個）才能把 staff burst 正確對應到航班。
+    let   crewPhaseStarted = false;
+    let   expectedCrew     = 0;
+    const crewPhaseTrace   = [];   // 除錯用
+    let   crewPhaseActive  = false;
+    let   rosterSeen       = false;
+    let   notifSeen        = false;
+    let   crewStartTimer   = null;
+
+    let   crewTargets      = [];   // [{ activityId, recordNo }]
+    let   crewIdx          = 0;
+    let   crewCurStaff     = [];   // 當前請求湧入的 staff（累積到收到 ack）
+    let   crewReqTimer     = null; // 單一請求逾時
+    const crewByActivity   = {};   // activityId → [staff...]
+
+    const _sendCrewReq = () => {
+      if (crewIdx >= crewTargets.length) { finalize('crew_done'); return; }
+      crewCurStaff = [];
+      const t = crewTargets[crewIdx];
+      const idVal = crewIdType === 'recordNo' ? t.recordNo : t.activityId;
+      ws.send(_mkBase('ReqCrewListForActivity', { ClientGuid: clientGuid, [crewField]: idVal }));
+      // 單一請求逾時（沒收到 ack 也前進，避免卡死）
+      clearTimeout(crewReqTimer);
+      crewReqTimer = setTimeout(() => _advanceCrew(), 2500);
+    };
+
+    const _advanceCrew = () => {
+      clearTimeout(crewReqTimer);
+      const t = crewTargets[crewIdx];
+      if (t) crewByActivity[t.activityId] = crewCurStaff.slice();
+      crewIdx++;
+      _sendCrewReq();
+    };
+
+    const startCrewPhase = () => {
+      if (crewPhaseStarted) return;
+      crewPhaseStarted = true;
+      crewPhaseActive  = true;
+
+      const rAllocs = allMsgs
+        .filter(m => m.SkyNet_MsgName === 'RpyRosterAllocationList')
+        .flatMap(m => m.DataList || []);
+      const activities = allMsgs
+        .filter(m => m.SkyNet_MsgName === 'RpyActivityList')
+        .flatMap(m => m.DataList || []);
+      const recNoByActId = {};
+      for (const a of activities) if (a.ActivityId) recNoByActId[a.ActivityId] = a.RecordNo;
+
+      const seen = new Set();
+      for (const a of rAllocs) {
+        if (_getStrAttr(a.Attrs, 'ACTIVITY_TYPE') !== 'Pairing') continue;
+        if (!a.ActivityId || seen.has(a.ActivityId)) continue;
+        seen.add(a.ActivityId);
+        crewTargets.push({ activityId: a.ActivityId, recordNo: recNoByActId[a.ActivityId] });
+      }
+
+      if (!crewTargets.length) { finalize('no_pairings_for_crew'); return; }
+
+      expectedCrew = crewTargets.length;
+      _sendCrewReq();  // 序列化：發第一個，收到 ack 再發下一個
+    };
 
     const finalize = (reason) => {
       if (resolved) return;
       resolved = true;
       clearTimeout(hardTimer);
       clearTimeout(settleTimer);
+      clearTimeout(crewStartTimer);
+      clearTimeout(crewReqTimer);
       try { ws.close(1000, 'done'); } catch (_) {}
 
       // 從收到的訊息中提取關鍵資料
@@ -1104,14 +1176,47 @@ async function _pegasysWsRoster(jwt, employeeId) {
       const activities   = activityMsgs.flatMap(m => m.DataList || []);
       const staffInfo    = staffMemberMsgs.flatMap(m => m.DataList || [])[0] || null;
 
+      // 任何可能含 crew 的訊息（名稱含 Crew/Trip/Pairing/Duty）
+      const KNOWN = new Set(['RpyRosterAllocationList','RpyActivityList','RpyStaffMemberList',
+                             'RpyLogin','RpyHeartbeat','RpyNotificationCountList']);
+      const crewCandidates = {};
+      for (const m of allMsgs) {
+        const n = m.SkyNet_MsgName;
+        if (!KNOWN.has(n)) {
+          if (!crewCandidates[n]) crewCandidates[n] = {
+            keys: Object.keys(m),
+            sample: m.DataList ? JSON.stringify((m.DataList || []).slice(0,1)).slice(0,400) : JSON.stringify(m).slice(0,400),
+          };
+        }
+      }
+
+      // 暴露第一個 Activity 的第一個 Duty 的 DutyActivities[0] 完整 key 清單
+      const firstAct = activities[0];
+      const firstDuty = firstAct?.Duties?.[0];
+      const firstDA = firstDuty?.DutyActivities?.find(d => d.DutyActivityType === 'F');
+
+      // crewByActivity: activityId → 解析後的 crew 成員清單
+      const crewParsed = {};
+      let crewTotal = 0;
+      for (const [actId, staffArr] of Object.entries(crewByActivity)) {
+        crewParsed[actId] = (staffArr || []).map(_parseCrewStaff);
+        crewTotal += crewParsed[actId].length;
+      }
+
       resolve({
         loginError,
         reason,
-        msgNames:      allMsgs.map(m => m.SkyNet_MsgName),
+        msgNames:        allMsgs.map(m => m.SkyNet_MsgName),
         rosterAllocs,
         activities,
         staffInfo,
-        staffRecordNo: staffInfo?.RecordNo ?? null,
+        staffRecordNo:   staffInfo?.RecordNo ?? null,
+        crewByActivity:  crewParsed,
+        _crewCandidates: crewCandidates,
+        _firstDAKeys:    firstDA ? Object.keys(firstDA) : [],
+        _firstDutyKeys:  firstDuty ? Object.keys(firstDuty) : [],
+        _crewPhase:      { expected: expectedCrew, done: crewIdx, field: crewField, idType: crewIdType, totalCrew: crewTotal },
+        _crewTrace:      crewPhaseTrace.slice(0, 40),
       });
     };
 
@@ -1124,9 +1229,25 @@ async function _pegasysWsRoster(jwt, employeeId) {
       const name = msg.SkyNet_MsgName;
       allMsgs.push(msg);
 
-      // 每條訊息重置 settle timer
-      clearTimeout(settleTimer);
-      settleTimer = setTimeout(() => finalize('settled'), SETTLE_MS);
+      // crew 階段：記錄收到的訊息名（含 ErrorMsg）供除錯
+      if (crewPhaseActive) {
+        crewPhaseTrace.push(name + (msg.ErrorMsg ? `!${String(msg.ErrorMsg).slice(0, 80)}` : ''));
+      }
+
+      // 每條訊息重置 settle timer（僅在 crew 階段「之前」）
+      // 注意：初始推送可能持續串流 RpyAlertList（永不安靜），所以 settle
+      // 只是「沒收到班表時」的後備收尾，crew 階段改由 data-ready 訊號觸發
+      if (!crewPhaseActive && !crewPhaseStarted) {
+        clearTimeout(settleTimer);
+        settleTimer = setTimeout(() => {
+          if (crewPhaseStarted) return;
+          if (allMsgs.some(m => m.SkyNet_MsgName === 'RpyRosterAllocationList')) {
+            startCrewPhase();
+          } else {
+            finalize('settled_no_roster');
+          }
+        }, SETTLE_MS);
+      }
 
       // RpyLogin — 檢查登入是否成功
       if (name === 'RpyLogin') {
@@ -1138,10 +1259,22 @@ async function _pegasysWsRoster(jwt, employeeId) {
         if (msg.ClientGuid) clientGuid = msg.ClientGuid;
       }
 
-      // RpyNotificationCountList 是最後一個系統初始化訊息 → 立即 settle
-      if (name === 'RpyNotificationCountList') {
-        clearTimeout(settleTimer);
-        settleTimer = setTimeout(() => finalize('settled_on_notif_count'), 500);
+      // data-ready 觸發：收到班表 + 系統初始化完成 → 立即進 crew 階段
+      // 用專屬 crewStartTimer（不被 generic settle 的 clearTimeout 清掉）
+      if (name === 'RpyRosterAllocationList') rosterSeen = true;
+      if (name === 'RpyNotificationCountList') notifSeen = true;
+      if (rosterSeen && notifSeen && !crewPhaseStarted && !crewStartTimer) {
+        crewStartTimer = setTimeout(() => startCrewPhase(), 400);
+      }
+
+      // crew 階段：crew 名單以 RpyStaffMemberList(N) 形式回推，累積到當前請求
+      if (crewPhaseActive && name === 'RpyStaffMemberList') {
+        for (const s of (msg.DataList || [])) crewCurStaff.push(s);
+      }
+
+      // RpyCrewListForActivity — 該請求的 ack（資料已先到）→ 收尾並發下一個
+      if (crewPhaseActive && name === 'RpyCrewListForActivity') {
+        _advanceCrew();
       }
 
       // RpyHeartbeat — 保持連線
@@ -1185,6 +1318,21 @@ function _getStrAttr(attrs, key) {
   return (attrs?.StringAttributes || []).find(a => a.Key === key)?.Value || null;
 }
 
+// RpyStaffMemberList 的 staff 記錄 → 精簡 crew 成員
+// CREW_GROUP skill：'1'=Cockpit, '2'=Cabin
+function _parseCrewStaff(s) {
+  const skills  = (s.Skills || []).map(x => x.Skill).filter(Boolean);
+  const crewGrp = skills.find(x => x.SkillType === 'CREW_GROUP')?.SkillName || null;
+  return {
+    staffId:       s.StaffId || '',
+    firstName:     s.FirstName || '',
+    lastName:      s.LastName || '',
+    preferredName: s.PreferredName || '',
+    crewGroup:     crewGrp,            // '1'=cockpit, '2'=cabin
+    isCockpit:     crewGrp === '1',
+  };
+}
+
 function _blockMinutes(depIso, arrIso) {
   try {
     const diff = new Date(arrIso) - new Date(depIso);
@@ -1202,7 +1350,7 @@ function _isoToDateStr(iso) {
   return iso ? iso.slice(0, 10).replace(/-/g, '') : '';
 }
 
-function _parseRosterData({ rosterAllocs, activities, staffInfo }) {
+function _parseRosterData({ rosterAllocs, activities, staffInfo, crewByActivity = {} }) {
   if (!rosterAllocs || rosterAllocs.length === 0) {
     return {
       _debug: true, _reason: 'no_roster_allocs',
@@ -1268,6 +1416,7 @@ function _parseRosterData({ rosterAllocs, activities, staffInfo }) {
         reportTime,
         reportAirport,
         legs,
+        crew: crewByActivity[alloc.ActivityId] || [],
         rawCodes: [_getStrAttr(alloc.Attrs, 'ACTIVITY_CODE') || alloc.ActivityId],
       });
     }
@@ -2681,10 +2830,15 @@ async function handleRequest(request, env) {
       }
 
       // Fetch roster via WebSocket (pghz_v1 protocol)
+      // crew 請求欄位可由 query 覆寫，方便逆向測試（?crewField=ActivityRecordNo&crewIdType=recordNo）
+      const crewOpts = {
+        field:  url.searchParams.get('crewField')  || 'ActivityId',
+        idType: url.searchParams.get('crewIdType') || 'activityId',
+      };
       const rosterKey = `pegasys_roster_${employeeId}`;
       let wsResult = null, wsError = null;
       try {
-        wsResult = await _pegasysWsRoster(jwt, employeeId);
+        wsResult = await _pegasysWsRoster(jwt, employeeId, crewOpts);
       } catch (e) {
         wsError = e.message;
       }
@@ -2710,11 +2864,12 @@ async function handleRequest(request, env) {
         });
       }
 
-      // ── 解析班表 ──────────────────────────────────────────────
+      // ── 解析班表（附帶 crew）──────────────────────────────────
       const pairings = _parseRosterData({
-        rosterAllocs: wsResult.rosterAllocs || [],
-        activities:   wsResult.activities   || [],
-        staffInfo:    wsResult.staffInfo,
+        rosterAllocs:   wsResult.rosterAllocs || [],
+        activities:     wsResult.activities   || [],
+        staffInfo:      wsResult.staffInfo,
+        crewByActivity: wsResult.crewByActivity || {},
       });
 
       const result = {
@@ -2727,11 +2882,10 @@ async function handleRequest(request, env) {
           Name:     `${wsResult.staffInfo.FirstName || ''} ${wsResult.staffInfo.LastName || ''}`.trim(),
         } : null,
         pairings,
-        // 除錯用：完整 allocation 前3筆 + activity 前3筆
-        _debug_allocs:    (wsResult.rosterAllocs || []).slice(0, 3),
-        _debug_activities: (wsResult.activities  || []).slice(0, 3),
         _debug_alloc_count:    (wsResult.rosterAllocs || []).length,
         _debug_activity_count: (wsResult.activities  || []).length,
+        _debug_crewPhase:      wsResult._crewPhase       || null,
+        _debug_crewTrace:      wsResult._crewTrace       || [],
       };
 
       // 快取 6 小時（只在有真實 pairings 時）
