@@ -1330,17 +1330,20 @@ function _parseCrewStaff(s) {
   };
 }
 
-// 把一個 activity 的 staff + 指派 + annotations 組成「每段(leg) crew map」
+// 把一個 activity 的 staff + 指派 + annotations 組成「依航線(dep>dest) 的 crew」
 //   staff:       RpyStaffMemberList → 身分(姓名)
 //   assignments: 該 activity 的 RosterAllocation → RANK + CREW_GROUP_CODE，RecordNo 為鍵
-//   annotations: rRA_DISPLAY_WORK_CODE / rRA_DISPLAY_POSITION，依 SequenceNumber 分每段
-//                （SequenceNumber 0 = pairing 名稱；1,2,... = 第 1,2,... 個航段）
-// 回傳：{ [seqNumber]: [ crewMember... ] }
-function _buildLegCrewMap(staff, assignments, annoByRec) {
+//   annotations: 每個 SequenceNumber 帶 rD_START_LOCN/rD_END_LOCN(該段起降) +
+//                rRA_DISPLAY_WORK_CODE(OPR/DHD/OET) + rRA_DISPLAY_POSITION
+//
+// ⚠️ SequenceNumber 不是航段順序（deadhead/standby 會插入 TPE>TPE 幻影段且編號錯位），
+//    所以一律用「起降機場對」對應到實際航段，而非用序號。
+// 回傳：{ "TPE>CGK": [crewMember...], ... }
+function _buildCrewByRoute(staff, assignments, annoByRec) {
   const staffById = {};
   for (const s of (staff || [])) staffById[s.StaffId] = s;
 
-  const legMap = {};
+  const byRoute = {};
   for (const a of (assignments || [])) {
     const an = annoByRec[a.RecordNo];
     if (!an) continue;
@@ -1349,33 +1352,45 @@ function _buildLegCrewMap(staff, assignments, annoByRec) {
     const crewGroup = (a.Attrs?.StringAttributes || []).find(x => x.Key === 'CREW_GROUP_CODE')?.Value || null;
     const s         = staffById[a.StaffId] || {};
 
-    // 依 SequenceNumber 收每段的 workcode + position
+    // 依 SequenceNumber 收每段的 起降 + workcode + position
     const seqs = {};
     for (const attr of (an.Attrs?.StringAttributes || [])) {
-      if (attr.Key === 'rRA_DISPLAY_WORK_CODE') (seqs[attr.SequenceNumber] ||= {}).workCode = attr.Value;
-      if (attr.Key === 'rRA_DISPLAY_POSITION')  (seqs[attr.SequenceNumber] ||= {}).position = attr.Value;
+      const sn = attr.SequenceNumber;
+      if (sn == null || sn < 1) continue;   // 0 = pairing 名稱
+      (seqs[sn] ||= {});
+      if (attr.Key === 'rRA_DISPLAY_WORK_CODE') seqs[sn].workCode = attr.Value;
+      if (attr.Key === 'rRA_DISPLAY_POSITION')  seqs[sn].position = attr.Value;
+      if (attr.Key === 'rD_START_LOCN')         seqs[sn].dep      = attr.Value;
+      if (attr.Key === 'rD_END_LOCN')           seqs[sn].dest     = attr.Value;
     }
-    for (const [seq, info] of Object.entries(seqs)) {
-      const sn = Number(seq);
-      if (!sn || sn < 1) continue;   // 0 = pairing 名稱，跳過
-      (legMap[sn] ||= []).push({
+    for (const info of Object.values(seqs)) {
+      if (!info.dep || !info.dest) continue;       // DHD 段無起降 → 自然排除（也只取在線）
+      const key = `${info.dep}>${info.dest}`;
+      (byRoute[key] ||= []).push({
         staffId:       a.StaffId || '',
         firstName:     s.FirstName || '',
         lastName:      s.LastName || '',
         preferredName: s.PreferredName || '',
         rank,                                  // CAP/FO/SFO/TCAP/SC/PR/CC...
-        position:      info.position || '',    // PIC/P1, P2, DHD(LHS), CIC, SC, CC, OE...
+        position:      info.position || '',    // PIC/P1, P2, CIC, SC, CC, OE...
         workCode:      info.workCode || '',    // OPR / DHD / OET
         isCockpit:     crewGroup === '1',
       });
     }
   }
-  return legMap;
+  return byRoute;
 }
 
-// 駕駛艙「在線(operating)」crew，PIC 排第一
+// 某航段的「在線(operating)駕駛艙」crew，去重 + PIC 排第一
 function _cockpitOperating(legCrew) {
-  const cockpit = (legCrew || []).filter(m => m.isCockpit && m.workCode === 'OPR');
+  const seen = new Set();
+  const cockpit = [];
+  for (const m of (legCrew || [])) {
+    if (!m.isCockpit || m.workCode !== 'OPR') continue;
+    if (m.staffId && seen.has(m.staffId)) continue;
+    if (m.staffId) seen.add(m.staffId);
+    cockpit.push(m);
+  }
   return cockpit.sort((a, b) => {
     const aPic = /PIC|P1/i.test(a.position) ? 0 : 1;
     const bPic = /PIC|P1/i.test(b.position) ? 0 : 1;
@@ -1428,13 +1443,12 @@ function _parseRosterData({ rosterAllocs, activities, staffInfo, crewByActivity 
     const activity = actMap[alloc.ActivityId];
     if (!activity || !activity.Duties) continue;
 
-    // 此 pairing 的每段(leg) crew map（SequenceNumber → crew）
-    const legMap = _buildLegCrewMap(
+    // 此 pairing 依航線(dep>dest) 的 crew
+    const crewByRoute = _buildCrewByRoute(
       crewByActivity[alloc.ActivityId],
       assignByActivity[alloc.ActivityId],
       annoByRec,
     );
-    let legSeq = 0;   // 跨整個 pairing 的航段序號（對齊 annotation SequenceNumber）
 
     // 逐個 Duty（每個出勤日）
     for (const duty of activity.Duties) {
@@ -1453,8 +1467,9 @@ function _parseRosterData({ rosterAllocs, activities, staffInfo, crewByActivity 
         const fn = da.TripId || '';
         if (!fn) continue;
 
-        legSeq++;
-        const cockpit = _cockpitOperating(legMap[legSeq]);  // 該段在線駕駛艙，PIC 第一
+        const dep = da.StartLocnId || '';
+        const dest = da.EndLocnId || '';
+        const cockpit = _cockpitOperating(crewByRoute[`${dep}>${dest}`]);  // 該段在線駕駛艙，PIC 第一
 
         const block = _blockMinutes(da.StartDatetime, da.EndDatetime);
         legs.push({
