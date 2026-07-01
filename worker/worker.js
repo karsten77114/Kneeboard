@@ -201,7 +201,9 @@ async function _geminiAnalyzeBatch(apiKey, contentParts) {
   const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
   const body = {
     contents: [{ parts: [...contentParts, { text: _BATCH_NOTICE_PROMPT }] }],
-    generationConfig: { temperature: 0.1, maxOutputTokens: 8192 },
+    // thinkingBudget:0 — 關掉 gemini-2.5-flash 預設 thinking，否則 thinking token 吃光
+    // output 預算導致 JSON 被 MAX_TOKENS 截斷（與 FinanceOS callGemini 同一個雷）
+    generationConfig: { temperature: 0.1, maxOutputTokens: 8192, thinkingConfig: { thinkingBudget: 0 } },
   };
   const resp = await fetch(url, {
     method: 'POST',
@@ -228,7 +230,9 @@ async function _geminiAnalyze(apiKey, contentParts) {
   const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
   const body = {
     contents: [{ parts: [...contentParts, { text: _NOTICE_PROMPT }] }],
-    generationConfig: { temperature: 0.1, maxOutputTokens: 2048 },
+    // maxOutputTokens 2048→8192：FOM/手冊修訂類長公告 2048 不夠會被截斷成非法 JSON。
+    // thinkingBudget:0 — 關掉 gemini-2.5-flash 預設 thinking（會吃光 output 預算）。
+    generationConfig: { temperature: 0.1, maxOutputTokens: 8192, thinkingConfig: { thinkingBudget: 0 } },
   };
   const resp = await fetch(url, {
     method: 'POST',
@@ -1684,6 +1688,29 @@ async function handleRequest(request, env) {
 
       const apliAirports = parseApliAirports(apliText);
 
+      // Build IATA→ICAO map from APLI pairs (ICAO4 + IATA3) — authoritative source
+      // for THIS briefing, so we never depend on a hand-maintained code table.
+      // 修正：LIDO 偶爾把 dest 回成 3 碼 IATA（如 SHI），下游天氣/機場查詢需 4 碼 ICAO。
+      function buildIataToIcao(txt) {
+        const map = {};
+        if (txt) {
+          for (const [, icao, iata] of txt.matchAll(/([A-Z]{4})([A-Z]{3})\s+[YN]/g)) {
+            map[iata] = icao;
+          }
+        }
+        return map;
+      }
+      const iataToIcao = buildIataToIcao(apliText);
+      const normIcao = (code) => {
+        if (!code) return code;
+        const u = String(code).trim().toUpperCase();
+        if (/^[A-Z]{4}$/.test(u)) return u;        // already ICAO
+        if (/^[A-Z]{3}$/.test(u)) return iataToIcao[u] || u;  // IATA → ICAO via APLI
+        return u;
+      };
+      const depIcao  = normIcao(parsed.dep);
+      const destIcao = normIcao(parsed.dest);
+
       // Merge all airport sources
       const allWxAirports = [...new Set([
         ...(ofpExtra.wxAirports || []),
@@ -1695,8 +1722,8 @@ async function handleRequest(request, env) {
         legId,
         flightNumber: `JX${parsed.flightNumber || flightNum}`,
         date: normDate,
-        dep: parsed.dep,
-        dest: parsed.dest,
+        dep: depIcao,
+        dest: destIcao,
         ofpNumber: parsed.ofpNumber,
         pic: parsed.pic || resolvedPic || null,   // PIC name from LIDO
         legKeys: parsed.legKeys || [],             // ← debug: available leg fields
@@ -1717,7 +1744,7 @@ async function handleRequest(request, env) {
         atsRoute: atsText ? parseATSRoute(atsText) : parsed.flightRoute,
         availableDocs: Object.keys(parsed.fileIds),
         // OFP 文字解析補充
-        ofp: { ...ofpExtra, flight: flightNum, dep: parsed.dep, dest: parsed.dest },
+        ofp: { ...ofpExtra, flight: flightNum, dep: depIcao, dest: destIcao },
         wxAirports: allWxAirports,
         notamText: notamText || null,
         routePoints: parseOFPWaypoints(ofpText),  // 從 OFP 文字解析的航路點座標
@@ -2980,10 +3007,16 @@ async function handleRequest(request, env) {
       };
       const rosterKey = `pegasys_roster_${employeeId}`;
       let wsResult = null, wsError = null;
-      try {
-        wsResult = await _pegasysWsRoster(jwt, employeeId, crewOpts);
-      } catch (e) {
-        wsError = e.message;
+      // WS 連線偶發失敗（PegaSys 短暫 rate-limit / 抖動）→ 重試 3 次、漸進退避
+      for (let attempt = 0; attempt < 3; attempt++) {
+        try {
+          wsResult = await _pegasysWsRoster(jwt, employeeId, crewOpts);
+          wsError = null;
+          break;
+        } catch (e) {
+          wsError = e.message;
+          if (attempt < 2) await new Promise(r => setTimeout(r, 1500 * (attempt + 1)));
+        }
       }
 
       // ── WebSocket 呼叫失敗 ────────────────────────────────────
@@ -3032,11 +3065,12 @@ async function handleRequest(request, env) {
         _debug_crewPhase:      wsResult._crewPhase       || null,
       };
 
-      // 快取 6 小時（只在有真實 pairings 時）
+      // 快取 7 天（只在有真實 pairings 時）：PegaSys 掛掉/限流時，
+      // 仍能用 last-good 班表回退，避免使用者整個 Roster 空白
       if (env.NOTICES_KV && Array.isArray(pairings) && pairings.length > 0) {
         await env.NOTICES_KV.put(rosterKey,
           JSON.stringify({ ts: new Date().toISOString(), pairings }),
-          { expirationTtl: 21600 }
+          { expirationTtl: 604800 }
         );
       }
 
