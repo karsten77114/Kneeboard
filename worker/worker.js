@@ -2660,8 +2660,9 @@ async function handleRequest(request, env) {
         });
       }
 
-      // KV cache key — v2: include from/to so different legs of same aircraft same day get own cache
-      const cacheKey = `fr24_track_v2:${reg.toUpperCase()}:${date}:${from.toUpperCase()}-${to.toUpperCase()}`;
+      // KV cache key — v3: playback timestamp fixed to prefer completed tracks.
+      // Include fn so same aircraft/route/date edge cases cannot collide.
+      const cacheKey = `fr24_track_v3:${reg.toUpperCase()}:${date}:${from.toUpperCase()}-${to.toUpperCase()}:${fn}`;
       if (env.NOTICES_KV) {
         const cached = await env.NOTICES_KV.get(cacheKey, 'text');
         if (cached) {
@@ -2736,22 +2737,65 @@ async function handleRequest(request, env) {
 
         const flightId = flight.identification.id;
         const depTime  = flight.time?.real?.departure || flight.time?.scheduled?.departure || (dayStart + 43200);
+        const arrTime  = flight.time?.real?.arrival ||
+                         flight.time?.estimated?.arrival ||
+                         flight.time?.scheduled?.arrival ||
+                         (depTime + 4 * 3600);
 
-        // Step 2: get playback track
-        const pbUrl = `https://api.flightradar24.com/common/v1/flight-playback.json?flightId=${flightId}&timestamp=${depTime}`;
-        const pbResp = await fetch(pbUrl, {
-          headers: fr24Headers,
-          signal: AbortSignal.timeout(15000),
-        });
+        async function fetchPlaybackTrack(timestamp) {
+          const pbUrl = `https://api.flightradar24.com/common/v1/flight-playback.json?flightId=${flightId}&timestamp=${timestamp}`;
+          const pbResp = await fetch(pbUrl, {
+            headers: fr24Headers,
+            signal: AbortSignal.timeout(15000),
+          });
+          if (!pbResp.ok) {
+            const err = new Error(`playback ${pbResp.status}`);
+            err.status = pbResp.status;
+            throw err;
+          }
+          const pbData = await pbResp.json();
+          return pbData?.result?.response?.data?.flight?.track || [];
+        }
 
-        if (!pbResp.ok) {
-          return new Response(JSON.stringify({ error: 'fr24_playback_blocked', status: pbResp.status }), {
+        function trackSpanSec(rawTrack) {
+          if (!rawTrack?.length) return 0;
+          const first = rawTrack[0]?.timestamp || 0;
+          const last  = rawTrack[rawTrack.length - 1]?.timestamp || 0;
+          return Math.max(0, last - first);
+        }
+
+        // Step 2: get playback track. FR24 playback is timestamp-sensitive:
+        // using departure time can return only the first airborne segment.
+        // Prefer a timestamp after arrival, then fall back to earlier snapshots.
+        const targetSpan = Math.max(0, arrTime - depTime) * 0.75;
+        const playbackTimestamps = [...new Set([
+          arrTime + 3600,
+          arrTime,
+          depTime + 6 * 3600,
+          depTime + 3600,
+          depTime,
+        ].filter(Boolean))];
+
+        let rawTrack = [];
+        let playbackError = null;
+        for (const ts of playbackTimestamps) {
+          try {
+            const candidate = await fetchPlaybackTrack(ts);
+            if (trackSpanSec(candidate) > trackSpanSec(rawTrack)) rawTrack = candidate;
+            if (targetSpan && trackSpanSec(rawTrack) >= targetSpan) break;
+          } catch (e) {
+            playbackError = e;
+          }
+        }
+
+        if (!rawTrack.length && playbackError) {
+          return new Response(JSON.stringify({
+            error: 'fr24_playback_blocked',
+            status: playbackError.status || 500,
+          }), {
             headers: { ...headers, 'Content-Type': 'application/json' },
           });
         }
-
-        const pbData   = await pbResp.json();
-        const rawTrack = pbData?.result?.response?.data?.flight?.track || [];
 
         // Convert to logbook track format
         const track = rawTrack.map(p => ({
@@ -2762,7 +2806,17 @@ async function handleRequest(request, env) {
           s:  p.speed?.kts        || 0,
         })).filter(p => p.la !== 0 || p.lo !== 0);
 
-        const result = JSON.stringify({ track, flightId, reg, date });
+        const result = JSON.stringify({
+          track,
+          flightId,
+          reg,
+          date,
+          playback: {
+            depTime,
+            arrTime,
+            spanSec: track.length ? track[track.length - 1].t - track[0].t : 0,
+          },
+        });
 
         // Cache for 7 days (completed flights don't change)
         if (env.NOTICES_KV && track.length > 0) {
