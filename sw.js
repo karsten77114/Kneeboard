@@ -1,4 +1,4 @@
-const CACHE = 'kneeboard-v67'; // 升版時同步更新 js/utils.js 的 APP_VERSION
+const CACHE = 'kneeboard-v68'; // 升版時同步更新 js/utils.js 的 APP_VERSION
 const PRECACHE = [
   './',
   './index.html',
@@ -9,6 +9,7 @@ const PRECACHE = [
   './js/utils.js',
   './js/services/api.js',
   './js/services/storage.js',
+  './js/services/cache.js',
   './js/views/home.js',
   './js/views/notice-board.js',
   './js/views/flightcrew.js',

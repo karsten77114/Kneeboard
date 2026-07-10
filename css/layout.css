@@ -61,6 +61,14 @@
   font-family: 'JetBrains Mono', 'SF Mono', monospace;
   color: var(--text2);
 }
+/* 資料時效 chip（C1）— 狀態指示，非操作 */
+.topbar-fresh {
+  font-family: 'JetBrains Mono', 'SF Mono', monospace;
+  font-size: 11px; font-weight: 700; letter-spacing: .3px;
+  flex-shrink: 0;
+}
+.topbar-fresh.live  { color: var(--green); }
+.topbar-fresh.cache { color: #f59e0b; }
 
 .topbar-empty {
   color: var(--text3); font-size: 14px;
@@ -142,6 +150,64 @@
   flex-shrink: 1; min-width: 0; width: 130px;
   color-scheme: dark;
 }
+
+/* ── Sub Bar（searchbar 下方：離線橫幅 + leg 切換 chips）─────────── */
+#subbar {
+  position: fixed;
+  top: calc(var(--topbar-h) + var(--searchbar-h));
+  left: 0; right: 0;
+  z-index: 185;
+  background: rgba(13,12,11,0.92);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+#subbar:empty { display: none; }
+
+/* C2 離線橫幅 */
+.offline-banner {
+  min-height: 28px;
+  display: flex; align-items: center; justify-content: center;
+  padding: 4px 12px;
+  font-size: 12px; font-weight: 600; text-align: center;
+  color: #f59e0b;
+  background: rgba(245,158,11,0.10);
+  border-bottom: 1px solid var(--border);
+}
+
+/* A3 leg 切換 chips — 橫向捲動、不換行 */
+.leg-chips {
+  display: flex; gap: 8px;
+  padding: 6px 12px;
+  overflow-x: auto; white-space: nowrap;
+  border-bottom: 1px solid var(--border);
+  -webkit-overflow-scrolling: touch;
+}
+.leg-chip {
+  flex: 0 0 auto;
+  display: inline-flex; align-items: center; gap: 6px;
+  min-height: 40px; padding: 4px 12px;
+  background: rgba(0,0,0,0.30);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text2); cursor: pointer;
+  white-space: nowrap;
+}
+.leg-chip:active { opacity: .7; }
+.leg-chip.active {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: rgba(196,154,60,0.10);
+  cursor: default;
+}
+.leg-chip-fn {
+  font-family: 'JetBrains Mono', 'SF Mono', monospace;
+  font-size: 13px; font-weight: 800;
+}
+.leg-chip-rt {
+  font-family: 'JetBrains Mono', 'SF Mono', monospace;
+  font-size: 12px; color: var(--text3);
+}
+.leg-chip.active .leg-chip-rt { color: var(--accent); }
 
 /* ── Main content ─────────────────────────────────────────────── */
 #main {

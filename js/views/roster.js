@@ -16,8 +16,10 @@ function clearCreds() { storage.set(CREDS_KEY, null); }
 // ── Roster storage ────────────────────────────────────────────────
 
 export function getRoster() {
+  // 保留「昨天(含)以後」的 pairing，避免把跨午夜、昨天出發但尚未飛完的班濾掉。
+  const yesterday = _dateOffsetStr(-1);
   return (storage.get('roster', []) || [])
-    .filter(p => _isFuture(p.date))
+    .filter(p => p.date >= yesterday)
     .sort((a, b) => a.date.localeCompare(b.date));
 }
 
@@ -27,6 +29,38 @@ export function savePairing(pairing) {
   storage.set('roster', list);
 }
 
+// 估算某一腿的預計 UTC 到達時間（毫秒）。std_utc/sta_utc 為 'HHMM'（UTC）。
+// 若 sta_utc 的時分 < std_utc（跨 UTC 午夜）則到達日 +1 天。無法估算回 null。
+export function estimateLegArrivalUTC(dateStr, leg) {
+  const d = String(dateStr || '');
+  if (d.length < 8 || !leg?.std_utc || !leg?.sta_utc) return null;
+  const std = String(leg.std_utc).padStart(4, '0');
+  const sta = String(leg.sta_utc).padStart(4, '0');
+  const stdMin = (+std.slice(0, 2)) * 60 + (+std.slice(2, 4));
+  const staMin = (+sta.slice(0, 2)) * 60 + (+sta.slice(2, 4));
+  if (Number.isNaN(stdMin) || Number.isNaN(staMin)) return null;
+  let arr = Date.UTC(+d.slice(0, 4), (+d.slice(4, 6)) - 1, +d.slice(6, 8), +sta.slice(0, 2), +sta.slice(2, 4));
+  if (staMin < stdMin) arr += 86400000; // 跨 UTC 午夜
+  return arr;
+}
+
+// 目前生效的 pairing：優先今天；否則昨天且「最後一腿 +2h buffer 仍未結束」；都沒有回 null。
+export function getCurrentPairing() {
+  const list = getRoster(); // date >= 昨天，已排序
+  const today     = _dateOffsetStr(0);
+  const yesterday = _dateOffsetStr(-1);
+
+  const todayP = list.find(p => p.date === today && p.legs?.length);
+  if (todayP) return todayP;
+
+  const yP = list.find(p => p.date === yesterday && p.legs?.length);
+  if (yP) {
+    const arr = estimateLegArrivalUTC(yP.date, yP.legs[yP.legs.length - 1]);
+    if (arr && (arr + 2 * 3600000) > Date.now()) return yP;
+  }
+  return null;
+}
+
 // ── Date helpers ──────────────────────────────────────────────────
 
 function _formatDate(d) {
@@ -34,16 +68,15 @@ function _formatDate(d) {
   return `${d.slice(6, 8)} ${MONTHS[m - 1]} ${d.slice(0, 4)}`;
 }
 
-function _isToday(d) {
+// 回傳 (今天 + offset) 的本地日期字串 YYYYMMDD。
+function _dateOffsetStr(offset) {
   const n = new Date();
-  const t = `${n.getFullYear()}${String(n.getMonth() + 1).padStart(2, '0')}${String(n.getDate()).padStart(2, '0')}`;
-  return d === t;
+  n.setDate(n.getDate() + offset);
+  return `${n.getFullYear()}${String(n.getMonth() + 1).padStart(2, '0')}${String(n.getDate()).padStart(2, '0')}`;
 }
 
-function _isFuture(d) {
-  const n = new Date();
-  const t = `${n.getFullYear()}${String(n.getMonth() + 1).padStart(2, '0')}${String(n.getDate()).padStart(2, '0')}`;
-  return d >= t;
+function _isToday(d) {
+  return d === _dateOffsetStr(0);
 }
 
 function _blockStr(min) {

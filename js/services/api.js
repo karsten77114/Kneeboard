@@ -1,6 +1,7 @@
 import storage from './storage.js';
 import store from '../store.js';
 import { parseMetarForWidget } from '../utils.js';
+import { putBriefing, getBriefing, putWx, getWx } from './cache.js';
 
 const WORKER = 'https://jx-briefing.karsten77114.workers.dev';
 
@@ -18,21 +19,32 @@ export async function lidoLogin() {
   return data.sessionToken;
 }
 
-// 確保 LIDO session 有效；無 token 時自動重新登入
+// 確保 LIDO session 有效；無 token 時自動重新登入。
+// In-flight dedup：啟動時 verifySessions（home mount）與 _autoLoadToday 可能同時呼叫，
+// 共用同一個登入 promise，避免對 /auth/login 雙重登入、token 互踩。
+let _lidoLoginInflight = null;
+
 export async function ensureLido() {
   const token = storage.getLidoToken();
   if (token) return true;
 
+  if (_lidoLoginInflight) return _lidoLoginInflight;
+
   store.setAuth('lido', { status: 'connecting' });
-  try {
-    const newToken = await lidoLogin();
-    storage.saveLidoToken(newToken);
-    store.setAuth('lido', { token: newToken, status: 'ok' });
-    return true;
-  } catch {
-    store.setAuth('lido', { status: 'error' });
-    return false;
-  }
+  _lidoLoginInflight = (async () => {
+    try {
+      const newToken = await lidoLogin();
+      storage.saveLidoToken(newToken);
+      store.setAuth('lido', { token: newToken, status: 'ok' });
+      return true;
+    } catch {
+      store.setAuth('lido', { status: 'error' });
+      return false;
+    } finally {
+      _lidoLoginInflight = null;
+    }
+  })();
+  return _lidoLoginInflight;
 }
 
 export async function fetchBriefing(flight, dateStr, dep = '', dest = '') {
@@ -40,11 +52,23 @@ export async function fetchBriefing(flight, dateStr, dep = '', dest = '') {
   if (!token) throw new Error('auth_required');
 
   const date = dateStr.replace(/-/g, '');
+  const cacheKey = `${flight}_${date}`;
   let url = `${WORKER}/api/briefing?flight=${flight}&date=${date}&sessionToken=${token}`;
   if (dep)  url += `&dep=${dep}`;
   if (dest) url += `&dest=${dest}`;
 
-  const resp = await fetch(url);
+  let resp;
+  try {
+    resp = await fetch(url);
+  } catch (netErr) {
+    // Network unreachable (offline) → try IndexedDB cache before failing.
+    const cached = await getBriefing(cacheKey);
+    if (cached?.data) {
+      return { ...cached.data, _source: 'cache', _fetchedAt: cached.savedAt };
+    }
+    throw netErr;
+  }
+
   if (resp.status === 401) {
     storage.clearLidoToken();
     store.setAuth('lido', { token: null, status: 'error' });
@@ -52,7 +76,10 @@ export async function fetchBriefing(flight, dateStr, dep = '', dest = '') {
   }
   const data = await resp.json();
   if (!resp.ok || data.error) throw new Error(data.error || `伺服器錯誤 ${resp.status}`);
-  return data;
+
+  // Success → persist for offline use (background, non-blocking) and tag as live.
+  putBriefing(cacheKey, data).catch(() => {});
+  return { ...data, _source: 'live', _fetchedAt: Date.now() };
 }
 
 export async function fetchFlightList(dateStr) {
@@ -133,15 +160,36 @@ export async function preloadMetarForFlight(airports) {
     try {
       const data = await fetchMetar(icao);
       if (!data || data.error) throw new Error(data?.error || `${icao} 查無資料`);
+      const now = Date.now();
       store.setWxData(icao, {
         metar:     data.metar || null,
         taf:       data.taf   || null,
-        fetchedAt: Date.now(),
+        fetchedAt: now,
         loading:   false,
         error:     null,
+        _source:   'live',
+        _fetchedAt: now,
       });
+      // Persist for offline (background, non-blocking).
+      putWx(icao, { metar: data.metar || null, taf: data.taf || null }).catch(() => {});
     } catch (e) {
-      store.setWxData(icao, { loading: false, error: e.message });
+      // Network/server failure → fall back to IndexedDB cache if present.
+      const cached = await getWx(icao);
+      if (cached?.data && (cached.data.metar || cached.data.taf)) {
+        // 鐵則 1：preloadMetarForFlight 可能由 render 觸發，寫入時直接改屬性、
+        // 不經過會 emit 的 setter，避免 re-render 迴圈。
+        store.wxData[icao] = {
+          metar:     cached.data.metar || null,
+          taf:       cached.data.taf   || null,
+          fetchedAt: cached.savedAt,
+          loading:   false,
+          error:     null,
+          _source:   'cache',
+          _fetchedAt: cached.savedAt,
+        };
+      } else {
+        store.setWxData(icao, { loading: false, error: e.message });
+      }
     }
   }
 }

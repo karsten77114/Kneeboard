@@ -22,6 +22,8 @@ let activeView     = null;
 let _clockTimer    = null;
 let _sbSearching   = false;
 let _sbDate        = todayStr();
+let _isOffline     = !navigator.onLine;
+let subbarEl       = null;
 const mainEl       = document.getElementById('main');
 const topbarEl     = document.getElementById('topbar');
 const searchbarEl  = document.getElementById('searchbar');
@@ -31,17 +33,24 @@ const sidebarEl    = document.getElementById('sidebar');
 // ── Bootstrap ─────────────────────────────────────────────────────
 
 function init() {
+  _ensureSubbar();
   _buildTabBar();
   _buildSidebar();
   _renderTopBar();
   _renderSearchBar();
+  _renderSubbar();
   _startClock();
   _switchTab('home');
 
   store.subscribe(() => {
     _renderTopBar();
     _renderSearchBar();
+    _renderSubbar();
   });
+
+  // C2：連線狀態橫幅
+  window.addEventListener('offline', () => { _isOffline = true;  _renderSubbar(); });
+  window.addEventListener('online',  () => { _isOffline = false; _renderSubbar(); showToast('✅ 網路已恢復'); });
 
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('./sw.js').catch(() => {});
@@ -54,12 +63,25 @@ function init() {
   }
 
   // Roster import via hash: #roster?fn=703&date=20260608
-  _handleRosterHash();
+  const deepLinkConsumed = _handleRosterHash();
+  // A2：無 deep link 時，若有今日/生效中的 pairing 則自動載入（停在 Home）
+  _autoLoadToday(deepLinkConsumed);
 }
 
+// 在 searchbar 下方建立固定的 subbar 容器（放離線橫幅 + leg 切換 chips）
+function _ensureSubbar() {
+  subbarEl = document.getElementById('subbar');
+  if (!subbarEl && searchbarEl) {
+    subbarEl = document.createElement('div');
+    subbarEl.id = 'subbar';
+    searchbarEl.insertAdjacentElement('afterend', subbarEl);
+  }
+}
+
+// 回傳 boolean：是否消化了 roster deep link（true 時 _autoLoadToday 不再動作）
 function _handleRosterHash() {
   const hash = location.hash;
-  if (!hash.startsWith('#roster?')) return;
+  if (!hash.startsWith('#roster?')) return false;
   const p = new URLSearchParams(hash.slice('#roster?'.length));
 
   // Clear hash immediately (avoids re-trigger on SW_UPDATED reload)
@@ -85,17 +107,17 @@ function _handleRosterHash() {
             }, 600);
           }
         }
-        return;
+        return true;
       }
     } catch (_) {}
     showToast('⚠ 無法解析班表資料');
-    return;
+    return true;
   }
 
   // ── Simple fn+date from bookmarklet button: #roster?fn=703&date=20260608 ──
   const fn   = p.get('fn');
   const date = p.get('date');
-  if (!fn || !date) return;
+  if (!fn || !date) return true; // 是 roster hash（已清除），但缺參數，不再 auto-load
 
   _sbDate = date;
   setTimeout(async () => {
@@ -105,6 +127,32 @@ function _handleRosterHash() {
     await _doSbSearch();
     // 停在 home page — 使用者可先看公告欄，再自行切換 tab
   }, 800);
+  return true;
+}
+
+// A2：App 啟動時自動帶入今日/生效中的航班（停在 Home），供 topbar 直接顯示。
+function _autoLoadToday(deepLinkConsumed) {
+  if (deepLinkConsumed) return;   // (a) deep link 已處理
+  if (store.flight) return;       // (b) 已有航班
+  const pairing = Roster.getCurrentPairing();
+  if (!pairing?.legs?.length) return; // (c) 沒有生效中的 pairing
+
+  // 選 leg：第一個「預計到達尚未過」的 leg；全過了取最後一腿。
+  const now = Date.now();
+  let leg = pairing.legs.find(lg => {
+    const arr = Roster.estimateLegArrivalUTC(pairing.date, lg);
+    return arr && arr > now;
+  });
+  if (!leg) leg = pairing.legs[pairing.legs.length - 1];
+
+  const fn = String(leg.flightNumber || '').replace(/^JX/i, '');
+  if (!fn) return;
+
+  _sbDate = pairing.date;
+  const inp = searchbarEl?.querySelector('#sb-flt-input');
+  if (inp) inp.value = fn;          // _renderSearchBar 會保留此值
+  _renderSearchBar();
+  _doSbSearch({ switchTab: false, silent: true });
 }
 
 // ── Cross-view: load flight from Roster tab ───────────────────────
@@ -182,12 +230,75 @@ function _renderTopBar() {
         </span>
       </div>
       <div class="topbar-meta">
+        ${_freshnessChip()}
         ${f.reg   ? `<span class="topbar-reg">${f.reg}</span>` : ''}
         ${f.date  ? `<span class="topbar-date">${_dateStr(f.date)}</span>` : ''}
         ${times   ? `<span class="topbar-times">${times}</span>` : ''}
       </div>
     </div>
     ${_utcBlock()}`;
+}
+
+// C1：資料時效 chip — LIVE HHMMZ（綠）/ CACHED Xm（琥珀）。資料來源 store.briefing。
+function _freshnessChip() {
+  const b = store.briefing;
+  if (!b || !b._source || !b._fetchedAt) return '';
+  if (b._source === 'live') {
+    const d  = new Date(b._fetchedAt);
+    const hh = String(d.getUTCHours()).padStart(2, '0');
+    const mm = String(d.getUTCMinutes()).padStart(2, '0');
+    return `<span class="topbar-fresh live">LIVE ${hh}${mm}Z</span>`;
+  }
+  if (b._source === 'cache') {
+    const mins = Math.max(0, Math.floor((Date.now() - b._fetchedAt) / 60000));
+    const label = mins > 90 ? `${Math.floor(mins / 60)}h ${mins % 60}m` : `${mins}m`;
+    return `<span class="topbar-fresh cache">CACHED ${label}</span>`;
+  }
+  return '';
+}
+
+// 正規化班號為純數字，供 leg chip 高亮比對（"JX703" / "703" → "703"）
+function _normFn(fn) {
+  return String(fn || '').toUpperCase().replace(/[^0-9]/g, '');
+}
+
+// C2 離線橫幅 + A3 leg 切換 chips（固定於 searchbar 下方的 subbar）
+function _renderSubbar() {
+  if (!subbarEl) return;
+  const parts = [];
+
+  if (_isOffline) {
+    parts.push(`<div class="offline-banner">📴 離線 — 顯示快取資料</div>`);
+  }
+
+  const pairing = Roster.getCurrentPairing();
+  if (pairing && (pairing.legs?.length || 0) >= 2) {
+    const curFn = _normFn(store.flight?.flightNumber);
+    const chips = pairing.legs.map(lg => {
+      const legFn  = _normFn(lg.flightNumber);
+      const loaded = curFn && legFn && curFn === legFn;
+      return `<button class="leg-chip${loaded ? ' active' : ''}"
+              data-leg-fn="${String(lg.flightNumber || '').replace(/^JX/i, '')}"
+              data-leg-date="${pairing.date}"${loaded ? ' disabled' : ''}>
+        <span class="leg-chip-fn">${lg.flightNumber}</span>
+        <span class="leg-chip-rt">${lg.dep}→${lg.dest}</span>
+      </button>`;
+    }).join('');
+    parts.push(`<div class="leg-chips">${chips}</div>`);
+  }
+
+  subbarEl.innerHTML = parts.join('');
+
+  subbarEl.querySelectorAll('.leg-chip:not(.active)').forEach(btn => {
+    btn.addEventListener('click', () => {
+      window.dispatchEvent(new CustomEvent('kb-load-flight', {
+        detail: { fn: btn.dataset.legFn, date: btn.dataset.legDate }
+      }));
+    });
+  });
+
+  // 依 subbar 實際高度下推 #main，避免內容被遮住；無內容則還原 CSS 預設。
+  mainEl.style.top = parts.length ? `${subbarEl.getBoundingClientRect().bottom}px` : '';
 }
 
 // ── Tab Bar ───────────────────────────────────────────────────────
@@ -285,7 +396,7 @@ function _renderSearchBar() {
   const last = storage.getLastSearch();
   if (input) input.value = prevFlight || (!f && last.flight ? last.flight : '');
 
-  btn?.addEventListener('click', _doSbSearch);
+  btn?.addEventListener('click', () => _doSbSearch());
   input?.addEventListener('keydown', e => { if (e.key === 'Enter') _doSbSearch(); });
 
   dateInput?.addEventListener('change', () => {
@@ -307,11 +418,14 @@ function _renderSearchBar() {
   });
 }
 
-async function _doSbSearch() {
+async function _doSbSearch({ switchTab = true, silent = false } = {}) {
   if (_sbSearching) return;
   const input  = searchbarEl.querySelector('#sb-flt-input');
   const flight = (input?.value || '').trim().replace(/^JX/i, '');
-  if (!flight) { showToast('請輸入班號'); input?.focus(); return; }
+  if (!flight) {
+    if (!silent) { showToast('請輸入班號'); input?.focus(); }
+    return;
+  }
 
   const date = _sbDate;
   _sbSearching = true;
@@ -321,8 +435,10 @@ async function _doSbSearch() {
     // ensureLido 無 token 時會自動向 Worker 重新登入（帳密在 secrets）
     const ready = await ensureLido();
     if (!ready) {
-      showToast('⚠ LIDO 連線失敗，已自動重試，請稍後再查詢一次');
-      _switchTab('home');
+      if (!silent) {
+        showToast('⚠ LIDO 連線失敗，已自動重試，請稍後再查詢一次');
+        _switchTab('home');
+      }
       return;
     }
 
@@ -342,9 +458,9 @@ async function _doSbSearch() {
       date:         data.date,
     });
     storage.saveLastSearch({ flight, dep: data.dep, dest: data.dest });
-    showToast(`✅ JX${flight} 已載入`);
-    // 查詢成功自動進 Flight Crew（僅成功路徑切換）
-    _switchTab('flightcrew');
+    showToast(silent ? `✈ 今日 JX${flight} 已自動載入` : `✅ JX${flight} 已載入`);
+    // 查詢成功自動進 Flight Crew（僅在 switchTab 時；silent auto-load 停在 Home）
+    if (switchTab) _switchTab('flightcrew');
 
     // Background preloads
     const reg = data.aircraft?.registration || data.ofp?.reg || '';
@@ -356,9 +472,11 @@ async function _doSbSearch() {
   } catch (e) {
     if (e.message === 'session_expired') {
       // token 已失效並清除，下次查詢時 ensureLido 會自動重新登入
-      showToast('⚠ LIDO 連線過期，已自動重試，請稍後再查詢一次');
-      _switchTab('home');
-    } else {
+      if (!silent) {
+        showToast('⚠ LIDO 連線過期，已自動重試，請稍後再查詢一次');
+        _switchTab('home');
+      }
+    } else if (!silent) {
       showToast(`❌ ${e.message}`);
     }
   } finally {
