@@ -1,5 +1,6 @@
 // Tools tab — FDP, Overtime, Pacific HF, FPL Decoder, Calc tools, External links
 import store from '../store.js';
+import { APP_VERSION } from '../utils.js';
 
 const TOOL_LIST = [
   { id: 'fdp',      label: '⏱ Duty Time',    done: true },
@@ -1287,6 +1288,7 @@ function _renderLinks(panel) {
             style="display:inline-flex;align-items:center;gap:5px;padding:7px 12px;background:var(--card);border:1px solid var(--border);border-radius:20px;color:var(--text);text-decoration:none;font-size:13px;font-weight:600;white-space:nowrap">
             ${item.label}<span style="color:var(--text3);font-size:11px">↗</span>
           </a>`).join('')}
-      </div>`).join('')}`;
+      </div>`).join('')}
+    <div style="text-align:center;color:var(--text3);font-size:11px;margin-top:16px">Kneeboard ${APP_VERSION}</div>`;
 }
 

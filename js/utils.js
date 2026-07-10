@@ -1,5 +1,8 @@
 // Shared utility functions
 
+// 應用程式版本號（升版時同步更新 sw.js 的 CACHE）
+export const APP_VERSION = 'v67';
+
 // IATA → ICAO mapping (covers Star Lux network + common alternates)
 const _IATA2ICAO = {
   // Taiwan

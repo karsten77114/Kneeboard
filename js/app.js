@@ -73,8 +73,8 @@ function _handleRosterHash() {
       if (pairing?.date && pairing?.legs?.length) {
         Roster.savePairing(pairing);
         showToast(`✅ ${pairing.date.slice(4,6)}/${pairing.date.slice(6,8)} 班表已匯入`);
-        _switchTab('roster');
-        // Also auto-load the first leg's briefing if it's today
+        // 匯入後停在 home（Roster tab 已移除）；若當日班表存在，下方 kb-load-flight
+        // 流程會自動載入首段 briefing 並切到 flightcrew
         if (Roster.getRoster().find(r => r.date === pairing.date)) {
           const firstLeg = pairing.legs[0];
           if (firstLeg) {
@@ -116,8 +116,8 @@ window.addEventListener('kb-load-flight', async (e) => {
   if (inp) inp.value = fn;
   _renderSearchBar();
   showToast(`Loading JX${fn}…`);
+  // _doSbSearch 成功後會自動切到 flightcrew，這裡不需再切換
   await _doSbSearch();
-  setTimeout(() => { if (store.flight) _switchTab('flightcrew'); }, 400);
 });
 
 // ── UTC Clock ─────────────────────────────────────────────────────
@@ -318,9 +318,10 @@ async function _doSbSearch() {
   _renderSearchBar();
 
   try {
+    // ensureLido 無 token 時會自動向 Worker 重新登入（帳密在 secrets）
     const ready = await ensureLido();
     if (!ready) {
-      showToast('⚠ 請先在首頁登入 LIDO');
+      showToast('⚠ LIDO 連線失敗，已自動重試，請稍後再查詢一次');
       _switchTab('home');
       return;
     }
@@ -342,6 +343,8 @@ async function _doSbSearch() {
     });
     storage.saveLastSearch({ flight, dep: data.dep, dest: data.dest });
     showToast(`✅ JX${flight} 已載入`);
+    // 查詢成功自動進 Flight Crew（僅成功路徑切換）
+    _switchTab('flightcrew');
 
     // Background preloads
     const reg = data.aircraft?.registration || data.ofp?.reg || '';
@@ -352,7 +355,8 @@ async function _doSbSearch() {
     preloadMetarForFlight([...new Set(wxApts)]).catch(() => {});
   } catch (e) {
     if (e.message === 'session_expired') {
-      showToast('⚠ LIDO session 過期，請重新登入');
+      // token 已失效並清除，下次查詢時 ensureLido 會自動重新登入
+      showToast('⚠ LIDO 連線過期，已自動重試，請稍後再查詢一次');
       _switchTab('home');
     } else {
       showToast(`❌ ${e.message}`);
