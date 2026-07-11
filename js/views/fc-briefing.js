@@ -3,9 +3,13 @@ import store from '../store.js';
 import storage from '../services/storage.js';
 import { preloadElbForFlight, preloadMetarForFlight, fetchGate, fetchAirportWeather } from '../services/api.js';
 import { fuelStr, weightPct, weightClass, weightColor, showToast, toICAO } from '../utils.js';
+import * as Gate from './fc-gate.js';
 
+// Gate Info is reached from a Briefing entry point (demoted from a top-level tab).
+let _view = 'briefing';   // 'briefing' | 'gate'
 
 export function mount(container) {
+  _view = 'briefing';
   _render(container);
   container._unsub = store.subscribe(() => _render(container));
   // Trigger ELB load on mount — same as ELB tab, so MEL shows without needing to visit ELB first
@@ -15,6 +19,7 @@ export function mount(container) {
 }
 
 export function unmount(container) {
+  if (_view === 'gate') Gate.unmount(container.querySelector('#brief-gate-panel'));
   if (container._unsub) container._unsub();
 }
 
@@ -106,6 +111,8 @@ async function _autoFillGate() {
 // ── Main render ──────────────────────────────────────────────────
 
 function _render(container) {
+  if (_view === 'gate') { _renderGate(container); return; }
+
   const d = store.briefing;
   if (!d) {
     container.innerHTML = `
@@ -154,6 +161,13 @@ function _render(container) {
 
       ${_arcCard(dep, dest, fltNo, t, cruiseFL, block, remaining, reg, d.date, crew, o)}
 
+      <!-- Gate Info entry (full Gate page opens in-panel) -->
+      <button class="brief-gate-entry" id="brief-gate-btn">
+        <span style="font-size:18px">🚪</span>
+        <span>Gate Info</span>
+        <span style="margin-left:auto;color:var(--text3);font-size:12px">Gate · Terminal · ADS-B ›</span>
+      </button>
+
       <!-- ATC Route + MEL -->
       <div class="grid2" style="margin-bottom:10px">
         <div class="card">
@@ -193,7 +207,29 @@ function _render(container) {
   _loadWeather(dep, dest);
   _loadAirportWeather(dep, dest);
   _bindFuel(o);
+  document.getElementById('brief-gate-btn')?.addEventListener('click', () => {
+    _view = 'gate';
+    _render(container);
+  });
   setTimeout(() => _bindCrew(crewKey, fltNo, dep, dest, t, cruiseFL, block), 0);
+}
+
+// ── Gate Info full page (mounted in-panel with a back bar) ───────
+function _renderGate(container) {
+  container.innerHTML = `
+    <div class="wx-backbar">
+      <button class="wx-back-btn" id="brief-back">← Briefing</button>
+      <span class="wx-subpage-title">🚪 Gate Info</span>
+    </div>
+    <div id="brief-gate-panel"></div>`;
+
+  const panel = container.querySelector('#brief-gate-panel');
+  container.querySelector('#brief-back').onclick = () => {
+    Gate.unmount(panel);
+    _view = 'briefing';
+    _render(container);
+  };
+  Gate.mount(panel);
 }
 
 // ── Arc card ─────────────────────────────────────────────────────
@@ -892,7 +928,7 @@ function _esc(s) {
 
 // ── Styles ───────────────────────────────────────────────────────
 
-const _STYLE_VER = 'briefing-style-v46';
+const _STYLE_VER = 'briefing-style-v47';
 function _applyStyles() {
   if (document.getElementById(_STYLE_VER)) return;
   // Remove any old version of the style element so updated CSS always wins
@@ -1094,6 +1130,16 @@ function _applyStyles() {
                    font-size:14px; font-weight:700; padding:6px 14px;
                    white-space:nowrap; flex-shrink:0; font-family:inherit; }
     .btn-copy-sm:active { opacity:.7; }
+
+    /* ── Gate Info entry point ── */
+    .brief-gate-entry {
+      display:flex; align-items:center; gap:8px; width:100%;
+      min-height:44px; margin-bottom:10px; padding:10px 14px;
+      background:var(--card); border:1px solid var(--border); border-radius:12px;
+      color:var(--text); font-size:14px; font-weight:600; font-family:inherit;
+      cursor:pointer; text-align:left;
+    }
+    .brief-gate-entry:active { opacity:.75; }
   `;
   document.head.appendChild(s);
 }

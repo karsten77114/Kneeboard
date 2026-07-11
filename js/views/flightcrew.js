@@ -2,14 +2,13 @@ import * as Briefing from './fc-briefing.js';
 import * as ELB      from './fc-elb.js';
 import * as Weather  from './fc-weather.js';
 import * as NOTAM    from './fc-notam.js';
-import * as Gate     from './fc-gate.js';
 
+// Gate demoted from a top-level sub-tab → entry point inside Briefing.
 const SUB_TABS = [
   { id: 'briefing', label: '📋 Briefing',   mod: Briefing },
   { id: 'elb',      label: '🔧 ELB',        mod: ELB      },
   { id: 'weather',  label: '🌤 Weather',     mod: Weather  },
   { id: 'notam',    label: '🗺 NOTAM',       mod: NOTAM    },
-  { id: 'gate',     label: '🚪 Gate Info',   mod: Gate     },
 ];
 
 let activeId = 'briefing';

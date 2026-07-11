@@ -297,6 +297,24 @@
   border-bottom-color: var(--gold);
 }
 
+/* ── Subpage back bar (Weather tools, Briefing → Gate) ────────── */
+.wx-backbar {
+  display: flex; align-items: center; gap: 10px;
+  position: sticky; top: 0; z-index: 100;
+  min-height: 44px; padding: 0 8px;
+  background: rgba(13,12,11,0.85);
+  backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--border);
+}
+.wx-back-btn {
+  min-height: 44px; padding: 0 8px;
+  border: none; background: none; cursor: pointer;
+  color: var(--gold); font-size: 15px; font-weight: 600;
+  font-family: inherit; display: inline-flex; align-items: center;
+}
+.wx-back-btn:active { opacity: 0.7; }
+.wx-subpage-title { font-size: 15px; font-weight: 700; color: var(--text); }
+
 /* ── Section header ───────────────────────────────────────────── */
 .section-title {
   font-size: 14px; font-weight: 700; color: var(--text2);

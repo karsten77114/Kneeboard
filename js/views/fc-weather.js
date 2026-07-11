@@ -6,16 +6,22 @@ import { showToast, toICAO, toIATA } from '../utils.js';
 
 const WORKER = 'https://jx-briefing.karsten77114.workers.dev';
 
-// ── Module-level state ───────────────────────────────────────────
-const SUB_TABS = [
-  { id: 'metar',  label: 'METAR/TAF' },
-  { id: 'atis',   label: 'D-ATIS' },
-  { id: 'chart',  label: 'OFP Charts' },
-  { id: 'wni',    label: 'WNI' },
-  { id: 'sigwx',  label: 'SIGWX/TC' },
-  { id: 'turbli', label: 'Turbli' },
-  { id: 'cold',   label: 'Cold Temp' },
+// ── Navigation model ─────────────────────────────────────────────
+// Weather = vertical dashboard (default). Tap a tool card to open its full
+// subpage (existing renderers, reused verbatim); a back bar returns to the
+// dashboard. _wxView: 'dashboard' | subpage id.
+const _WX_TOOLS = [
+  { id: 'atis',   icon: '📻', label: 'D-ATIS' },
+  { id: 'chart',  icon: '🗺', label: 'OFP Charts' },
+  { id: 'wni',    icon: '🌐', label: 'WNI' },
+  { id: 'sigwx',  icon: '🌏', label: 'SIGWX / TC' },
+  { id: 'turbli', icon: '🌀', label: 'Turbli' },
+  { id: 'cold',   icon: '❄️', label: 'Cold Temp' },
 ];
+const _SUBPAGE_TITLES = {
+  atis: 'D-ATIS', chart: 'OFP Charts', wni: 'WNI',
+  sigwx: 'SIGWX / TC', turbli: 'Turbli', cold: 'Cold Temp',
+};
 
 // ── Chart state ──────────────────────────────────────────────────
 let _chartsData  = null;
@@ -28,7 +34,7 @@ let _atisCache   = {};
 const _atisPending = new Set();
 let _atisShown   = null;
 
-let _activeSubTab    = 'metar';
+let _wxView          = 'dashboard';  // 'dashboard' | subpage id
 let _metarActiveIcao = null;   // active airport in METAR sub-tab
 
 // ── Helpers ──────────────────────────────────────────────────────
@@ -183,6 +189,38 @@ function _applyStyles() {
     .chart-sub-btn  { flex-shrink:0; font-size:11px; font-weight:600; padding:4px 10px; border-radius:16px;
                       background:rgba(255,255,255,.06); border:1px solid var(--border); color:var(--text2); cursor:pointer; }
     .chart-sub-btn.active { background:rgba(99,102,241,.2); border-color:var(--accent); color:var(--accent); }
+
+    /* ── Weather vertical dashboard ── */
+    .wx-dash-label { font-size:11px; font-weight:700; letter-spacing:.6px; text-transform:uppercase;
+                     color:var(--text3); margin:16px 2px 8px; }
+    #wx-dashboard > .wx-dash-label:first-child { margin-top:4px; }
+
+    .wx-risk-card { display:flex; align-items:center; gap:12px; width:100%; text-align:left;
+                    background:var(--card); border:1px solid var(--border); border-radius:12px;
+                    padding:12px 14px; min-height:64px; cursor:pointer;
+                    font-family:inherit; color:var(--text); }
+    .wx-risk-card:active { opacity:.75; }
+    .wx-risk-icon { font-size:22px; flex-shrink:0; }
+    .wx-risk-body { flex:1; min-width:0; }
+    .wx-risk-title { font-size:11px; font-weight:700; letter-spacing:.4px; color:var(--text3);
+                     text-transform:uppercase; margin-bottom:3px; }
+    .wx-risk-text { font-size:13px; color:var(--text2); line-height:1.4; word-break:break-word;
+                    display:flex; align-items:center; gap:6px; }
+    .wx-risk-dot { display:inline-block; width:9px; height:9px; border-radius:50%; flex-shrink:0; }
+    .wx-risk-chevron { font-size:22px; color:var(--text3); flex-shrink:0; line-height:1; }
+
+    .wx-tools-grid { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:8px; }
+    .wx-tool-card  { display:flex; flex-direction:column; align-items:flex-start; justify-content:center;
+                     gap:6px; min-height:64px; padding:12px 14px; border-radius:12px;
+                     background:var(--card); border:1px solid var(--border); cursor:pointer;
+                     font-family:inherit; color:var(--text); text-align:left; }
+    .wx-tool-card:active { opacity:.75; }
+    .wx-tool-icon  { font-size:20px; line-height:1; }
+    .wx-tool-label { font-size:13px; font-weight:600; color:var(--text); }
+
+    .wx-spin-sm { display:inline-block; width:12px; height:12px; border:2px solid var(--border);
+                  border-top-color:var(--gold); border-radius:50%; animation:spin .8s linear infinite;
+                  flex-shrink:0; }
   `;
   document.head.appendChild(s);
 }
@@ -190,6 +228,7 @@ function _applyStyles() {
 // ── Mount / Unmount ──────────────────────────────────────────────
 
 export function mount(container) {
+  _wxView = 'dashboard';   // always (re)enter Weather on the dashboard
   _applyStyles();
   _render(container);
   container._unsub = store.subscribe(() => _render(container));
@@ -202,51 +241,134 @@ export function unmount(container) {
   if (container._unsub) container._unsub();
 }
 
-// ── Top-level render ─────────────────────────────────────────────
+// ── Top-level render (dashboard ⇄ subpage) ───────────────────────
 
 function _render(container) {
-  container.innerHTML = `
-    <div class="sub-tabbar" id="wx-subtabs">
-      ${SUB_TABS.map(t => `
-        <button class="sub-tab-btn ${t.id === _activeSubTab ? 'active' : ''}"
-                data-tab="${t.id}">${t.label}</button>
-      `).join('')}
-    </div>
-    <div id="wx-panel" class="view-content"></div>`;
-
-  container.querySelectorAll('.sub-tab-btn').forEach(btn => {
-    btn.onclick = () => {
-      _activeSubTab = btn.dataset.tab;
-      container.querySelectorAll('.sub-tab-btn').forEach(b =>
-        b.classList.toggle('active', b.dataset.tab === _activeSubTab));
-      _renderPanel(container.querySelector('#wx-panel'));
-      if (_activeSubTab === 'atis' && !_atisShown) {
-        const apts = _airports();
-        if (apts.length) _loadAtis(container.querySelector('#wx-panel'), apts[0].icao);
-      }
-    };
-  });
-
-  const panel = container.querySelector('#wx-panel');
-  _renderPanel(panel);
-
-  // Auto-load ATIS for first airport if ATIS tab is active
-  if (_activeSubTab === 'atis' && !_atisShown) {
-    const apts = _airports();
-    if (apts.length) _loadAtis(panel, apts[0].icao);
-  }
+  if (_wxView === 'dashboard') _renderDashboard(container);
+  else                         _renderSubpage(container, _wxView);
 }
 
-function _renderPanel(panel) {
-  switch (_activeSubTab) {
-    case 'metar':  _renderMetar(panel);  break;
-    case 'atis':   _renderAtis(panel);   break;
+function _goSubpage(container, id) { _wxView = id;          _render(container); }
+function _goDashboard(container)   { _wxView = 'dashboard'; _render(container); }
+
+// ── Dashboard: single scrolling page ─────────────────────────────
+
+function _renderDashboard(container) {
+  container.innerHTML = `
+    <div class="view-content" id="wx-dashboard">
+      <div class="wx-dash-label">METAR / TAF</div>
+      <div id="wx-metar-section"></div>
+      <div id="wx-risk-section"></div>
+      <div class="wx-dash-label">Charts &amp; Tools</div>
+      <div class="wx-tools-grid">
+        ${_WX_TOOLS.map(t => `
+          <button class="wx-tool-card" data-tool="${t.id}">
+            <span class="wx-tool-icon">${t.icon}</span>
+            <span class="wx-tool-label">${t.label}</span>
+          </button>`).join('')}
+      </div>
+    </div>`;
+
+  // 1) METAR/TAF cards — reuse existing renderer verbatim
+  _renderMetar(container.querySelector('#wx-metar-section'));
+
+  // 2) Turbli risk summary — only when a briefing is loaded
+  _renderRiskSummary(container);
+
+  // 3) Tools grid → open the matching full subpage
+  container.querySelectorAll('.wx-tool-card').forEach(btn => {
+    btn.onclick = () => _goSubpage(container, btn.dataset.tool);
+  });
+}
+
+// ── Subpage shell: back bar + existing renderer ──────────────────
+
+function _renderSubpage(container, id) {
+  container.innerHTML = `
+    <div class="wx-backbar">
+      <button class="wx-back-btn" id="wx-back">← Weather</button>
+      <span class="wx-subpage-title">${_SUBPAGE_TITLES[id] || ''}</span>
+    </div>
+    <div id="wx-panel" class="view-content"></div>`;
+  container.querySelector('#wx-back').onclick = () => _goDashboard(container);
+  _renderPanel(container.querySelector('#wx-panel'), id);
+}
+
+function _renderPanel(panel, id) {
+  switch (id) {
+    case 'atis':   _renderAtis(panel);   break;  // self-loads first airport
     case 'chart':  _renderChart(panel);  break;
     case 'wni':    _renderWni(panel);    break;
     case 'sigwx':  _renderSigwx(panel);  break;
     case 'turbli': _renderTurbli(panel); break;
     case 'cold':   _renderCold(panel);   break;
   }
+}
+
+// ── Turbli risk summary (reuses /turbli data flow; own light cache) ─
+const _turbliSummary = {};   // key → { loading, done, hasData, warning, error }
+
+function _riskWarnColor(w) {
+  return /smooth|light/i.test(w)  ? 'var(--green)'
+       : /moderate/i.test(w)      ? 'var(--amber)'
+       : /severe|strong/i.test(w) ? 'var(--red)'
+       : 'var(--text3)';
+}
+
+function _renderRiskSummary(container) {
+  const el = container.querySelector('#wx-risk-section');
+  if (!el) return;
+  const b = store.briefing;
+  const f = store.flight || {};
+  if (!b) { el.innerHTML = ''; return; }   // hidden without a briefing
+
+  const dep  = toIATA(b.dep  || f.dep  || '') || (b.dep  || f.dep  || '');
+  const dest = toIATA(b.dest || f.dest || '') || (b.dest || f.dest || '');
+  if (!dep || !dest) { el.innerHTML = ''; return; }
+
+  const fltNo = (b.flightNumber || f.flightNumber || '').replace(/^JX/i, '');
+  const date  = new Date().toISOString().slice(0, 10);
+  const key   = `${dep}-${dest}-${date}`;
+  const c     = _turbliSummary[key];
+
+  let inner;
+  if (!c || c.loading) {
+    inner = `<span class="wx-spin-sm"></span> 分析亂流預報…`;
+  } else if (c.warning) {
+    inner = `<span class="wx-risk-dot" style="background:${_riskWarnColor(c.warning)}"></span>${c.warning.replace(/[<>&]/g, '')}`;
+  } else if (c.hasData) {
+    inner = `<span class="wx-risk-dot" style="background:var(--green)"></span>沿航路無顯著亂流 · 點擊查看剖面`;
+  } else {
+    inner = `此航班暫無亂流資料 · 點擊查看`;
+  }
+
+  el.innerHTML = `
+    <div class="wx-dash-label">風險摘要</div>
+    <button class="wx-risk-card">
+      <span class="wx-risk-icon">🌀</span>
+      <div class="wx-risk-body">
+        <div class="wx-risk-title">亂流風險 · ${dep} → ${dest}</div>
+        <div class="wx-risk-text">${inner}</div>
+      </div>
+      <span class="wx-risk-chevron">›</span>
+    </button>`;
+  el.querySelector('.wx-risk-card').onclick = () => _goSubpage(container, 'turbli');
+
+  if (!c) _loadTurbliSummary(container, key, dep, dest, fltNo, date);
+}
+
+async function _loadTurbliSummary(container, key, dep, dest, fltNo, date) {
+  _turbliSummary[key] = { loading: true };
+  try {
+    const r = await fetch(`${WORKER}/turbli?dep=${dep}&dest=${dest}&date=${date}&flight=${fltNo || ''}`);
+    const d = await r.json();
+    const hasData = !!(d.ok && d.line && d.line.length);
+    _turbliSummary[key] = { loading: false, done: true, hasData, warning: hasData ? (d.warning || '') : null };
+  } catch {
+    _turbliSummary[key] = { loading: false, done: true, hasData: false, warning: null, error: true };
+  }
+  // Repaint only if still on the dashboard (avoids clobbering a subpage)
+  if (_wxView === 'dashboard') _renderRiskSummary(container);
 }
 
 // ══════════════════════════════════════════════════════════════════
