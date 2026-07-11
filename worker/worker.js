@@ -2387,7 +2387,7 @@ async function handleRequest(request, env) {
       // Token guard
       const authVal = (request.headers.get('Authorization') || '').replace(/^Bearer\s*/i, '').trim() || (url.searchParams.get('token') || '');
       if (!env.UPLOAD_TOKEN || authVal !== env.UPLOAD_TOKEN) {
-        return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+        return new Response(JSON.stringify({ error: 'Unauthorized', message: '❌ 憑證錯誤：捷徑內的 UPLOAD_TOKEN 不符' }), {
           status: 401, headers: { ...headers, 'Content-Type': 'application/json' },
         });
       }
@@ -2435,7 +2435,8 @@ async function handleRequest(request, env) {
           if (raw && raw.trim()) body = JSON.parse(raw);
         } catch (parseErr) {
           return new Response(JSON.stringify({
-            error: 'JSON 解析失敗：Body 可能為空。\n請改用截圖或複製文字後以「上傳公告（剪貼簿）」捷徑上傳。'
+            error: 'JSON 解析失敗：Body 可能為空。\n請改用截圖或複製文字後以「上傳公告（剪貼簿）」捷徑上傳。',
+            message: '❌ 上傳內容為空或格式錯誤，請改用截圖或剪貼簿文字上傳',
           }), { status: 400, headers: { ...headers, 'Content-Type': 'application/json' } });
         }
         sourceHint  = body.source || body.src || '';
@@ -2479,7 +2480,7 @@ async function handleRequest(request, env) {
       }
 
       if (!parts.length) {
-        return new Response(JSON.stringify({ error: 'No content provided' }), {
+        return new Response(JSON.stringify({ error: 'No content provided', message: '❌ 沒有收到內容：請確認捷徑有選到檔案或文字' }), {
           status: 400, headers: { ...headers, 'Content-Type': 'application/json' },
         });
       }
@@ -2489,8 +2490,16 @@ async function handleRequest(request, env) {
                     : parts.some(p => p.inline_data?.mime_type?.includes('image')) ? 'image'
                     : 'text';
 
+      // message 一律用「字串」——iOS 捷徑「取得字典值」把布林轉文字會顯示空白，
+      // 捷徑收尾只顯示 message 這一個欄位即可
       if (isBatch) {
-        const analyzedList = await _aiAnalyzeBatch(env, parts);
+        let analyzedList;
+        try { analyzedList = await _aiAnalyzeBatch(env, parts); }
+        catch (e) {
+          return new Response(JSON.stringify({ ok: false, error: e.message, message: `❌ 分析失敗：${e.message}` }), {
+            status: 500, headers: { ...headers, 'Content-Type': 'application/json' },
+          });
+        }
         const now = new Date().toISOString();
         const list = await _noticesGet(env);
         const newNotices = analyzedList
@@ -2498,12 +2507,22 @@ async function handleRequest(request, env) {
           .filter(n => !_isDuplicate(n, list));
         const merged = [...newNotices, ...list].slice(0, 200);
         await _noticesSet(env, merged);
-        return new Response(JSON.stringify({ ok: true, count: newNotices.length, skipped: analyzedList.length - newNotices.length }), {
+        const skippedN = analyzedList.length - newNotices.length;
+        return new Response(JSON.stringify({
+          ok: true, count: newNotices.length, skipped: skippedN,
+          message: `✅ 已上傳 ${newNotices.length} 筆${skippedN ? `（略過重複 ${skippedN} 筆）` : ''}`,
+        }), {
           headers: { ...headers, 'Content-Type': 'application/json' },
         });
       }
 
-      const analyzed = await _aiAnalyze(env, parts);
+      let analyzed;
+      try { analyzed = await _aiAnalyze(env, parts); }
+      catch (e) {
+        return new Response(JSON.stringify({ ok: false, error: e.message, message: `❌ 分析失敗：${e.message}` }), {
+          status: 500, headers: { ...headers, 'Content-Type': 'application/json' },
+        });
+      }
       const rawTextForStorage = parts.find(p => p.text && p.text.includes('公告內容:'))?.text?.split('公告內容:\n')[1] || '';
 
       // 使用者在 Shortcut 傳入的 source 映射成合法 source_tag
@@ -2520,7 +2539,8 @@ async function handleRequest(request, env) {
         issue_date:     _normalizeDate(analyzed.issue_date)     || null,
         effective_date: _normalizeDate(analyzed.effective_date) || null,
         summary:        _cleanMelCodes(analyzed.summary),
-        ...(dateOverride ? { issue_date: dateOverride, effective_date: dateOverride } : {}),
+        // dateOverride 只覆蓋發佈日；生效日以 AI 從文件讀到的為準（讀不到才用 override）
+        ...(dateOverride ? { issue_date: dateOverride, ...(_normalizeDate(analyzed.effective_date) ? {} : { effective_date: dateOverride }) } : {}),
         // 使用者選擇的來源優先（強制覆蓋 Gemini 的判斷）
         ...(_mappedSourceTag ? { source_tag: _mappedSourceTag } : {}),
       };
@@ -2538,7 +2558,11 @@ async function handleRequest(request, env) {
       }
       await _noticesSet(env, list.slice(0, 200));
 
-      return new Response(JSON.stringify({ ok: true, updated: dupIdx !== -1, notice_id: notice.id, notice_issue_date: notice.issue_date || null, notice }), {
+      const nBullets = Array.isArray(notice.summary) ? notice.summary.length : 0;
+      return new Response(JSON.stringify({
+        ok: true, updated: dupIdx !== -1, notice_id: notice.id, notice_issue_date: notice.issue_date || null, notice,
+        message: `${dupIdx !== -1 ? '⟳ 已更新' : '✅ 已上傳'}：${notice.title || notice.source || '（無標題）'}（${nBullets} 條重點）`,
+      }), {
         headers: { ...headers, 'Content-Type': 'application/json' },
       });
     }
