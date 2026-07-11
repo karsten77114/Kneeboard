@@ -21,7 +21,7 @@ let activeTabId    = 'home';
 let activeView     = null;
 let _clockTimer    = null;
 let _sbSearching   = false;
-let _sbDate        = todayStr();
+let _sbDate        = todayStr().replace(/-/g, '');  // 恆為無破折號 YYYYMMDD
 let _isOffline     = !navigator.onLine;
 let subbarEl       = null;
 const mainEl       = document.getElementById('main');
@@ -435,19 +435,19 @@ function _renderSearchBar() {
     _sbDate = dateInput.value.replace(/-/g, '');
   });
 
-  prevBtn?.addEventListener('click', () => {
-    const d = new Date(_sbDate.slice(0,4) + '-' + _sbDate.slice(4,6) + '-' + _sbDate.slice(6,8));
-    d.setDate(d.getDate() - 1);
-    _sbDate = d.toISOString().slice(0,10).replace(/-/g,'');
-    _renderSearchBar();
-  });
+  prevBtn?.addEventListener('click', () => _shiftSbDate(-1));
+  nextBtn?.addEventListener('click', () => _shiftSbDate(1));
+}
 
-  nextBtn?.addEventListener('click', () => {
-    const d = new Date(_sbDate.slice(0,4) + '-' + _sbDate.slice(4,6) + '-' + _sbDate.slice(6,8));
-    d.setDate(d.getDate() + 1);
-    _sbDate = d.toISOString().slice(0,10).replace(/-/g,'');
-    _renderSearchBar();
-  });
+// 搜尋列日期位移（±N 天）。全程 UTC 方法，避免時區混用；輸入非 8 位純數字時
+// 防呆重置為今日（_sbDate 恆為無破折號 YYYYMMDD 的不變式在此保底）。
+function _shiftSbDate(delta) {
+  const ds = String(_sbDate || '').replace(/-/g, '');
+  if (!/^\d{8}$/.test(ds)) { _sbDate = todayStr().replace(/-/g, ''); _renderSearchBar(); return; }
+  const d = new Date(Date.UTC(+ds.slice(0,4), +ds.slice(4,6) - 1, +ds.slice(6,8)));
+  d.setUTCDate(d.getUTCDate() + delta);
+  _sbDate = d.toISOString().slice(0,10).replace(/-/g,'');
+  _renderSearchBar();
 }
 
 async function _doSbSearch({ switchTab = true, silent = false } = {}) {
