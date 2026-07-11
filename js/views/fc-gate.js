@@ -44,7 +44,7 @@ export function mount(container) {
           <span style="color:var(--text3);font-size:11px;white-space:nowrap">起飛日</span>
           ${['昨天','今天','明天'].map((label, i) => `
             <button class="gate-date-btn" data-offset="${i - 1}"
-              style="flex:1;height:32px;border-radius:8px;border:1px solid var(--border);
+              style="flex:1;height:44px;border-radius:8px;border:1px solid var(--border);
                      background:${i === 1 ? 'var(--accent)' : 'var(--card)'};
                      color:${i === 1 ? '#000' : 'var(--text2)'};
                      font-size:12px;font-weight:600;cursor:pointer">

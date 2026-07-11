@@ -71,20 +71,20 @@ function _renderDutyTime(panel) {
     <div class="card" style="margin-bottom:10px">
       <div class="card-title">選項</div>
       <div style="display:flex;flex-direction:column;gap:12px">
-        <label style="display:flex;align-items:flex-start;gap:10px;cursor:pointer">
+        <label style="display:flex;align-items:flex-start;gap:10px;cursor:pointer;min-height:44px">
           <input type="checkbox" id="dt-bunk" style="width:16px;height:16px;margin-top:2px;flex-shrink:0">
           <span style="font-size:13px;line-height:1.5">Class 1 Bunk PIC Discretion
             <span style="display:block;font-size:11px;color:var(--text3)">3P: Max FT +4h (→16h)　4P: Max FT +6h (→18h)</span>
           </span>
         </label>
-        <label style="display:flex;align-items:flex-start;gap:10px;cursor:pointer">
+        <label style="display:flex;align-items:flex-start;gap:10px;cursor:pointer;min-height:44px">
           <input type="checkbox" id="dt-tzadapt" style="width:16px;height:16px;margin-top:2px;flex-shrink:0">
           <span style="font-size:13px;line-height:1.5">Time Diff ≥ 6h & Stay > 48h
             <span style="display:block;font-size:11px;color:var(--text3)">返回基地後 48h 內不得安排飛航任務</span>
           </span>
         </label>
         <div>
-          <label style="display:flex;align-items:flex-start;gap:10px;cursor:pointer;margin-bottom:8px">
+          <label style="display:flex;align-items:flex-start;gap:10px;cursor:pointer;margin-bottom:8px;min-height:44px">
             <input type="checkbox" id="dt-dhd" style="width:16px;height:16px;margin-top:2px;flex-shrink:0">
             <span style="font-size:13px">DHD after OPS
               <span style="display:block;font-size:11px;color:var(--text3)">DHD 時間計入 Duty Period，影響休息起算點</span>
@@ -100,14 +100,14 @@ function _renderDutyTime(panel) {
             </div>
           </div>
         </div>
-        <label id="dt-pic-disc-label" style="display:none;flex-direction:row;align-items:flex-start;gap:10px;cursor:pointer">
+        <label id="dt-pic-disc-label" style="display:none;flex-direction:row;align-items:flex-start;gap:10px;cursor:pointer;min-height:44px">
           <input type="checkbox" id="dt-pic-disc" style="width:16px;height:16px;margin-top:2px;flex-shrink:0">
           <span style="font-size:13px">PIC Discretion (+2h FDP)
             <span style="display:block;font-size:11px;color:var(--text3)">不可抗力/天災，機長裁量 3P FDP +2h → 最大 20h（Max FT 不變）</span>
           </span>
         </label>
         <div>
-          <label style="display:flex;align-items:center;gap:10px;cursor:pointer;margin-bottom:8px">
+          <label style="display:flex;align-items:center;gap:10px;cursor:pointer;margin-bottom:8px;min-height:44px">
             <input type="checkbox" id="dt-acc" style="width:16px;height:16px;flex-shrink:0">
             <span style="font-size:13px">Rest at Appropriate Accommodation (&gt;3h)</span>
           </label>

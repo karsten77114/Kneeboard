@@ -124,7 +124,7 @@
 }
 .sb-input {
   flex: 1; max-width: 120px;
-  height: 30px; padding: 0 10px;
+  height: 44px; padding: 0 10px;
   font-size: 15px; font-weight: 700; font-family: 'JetBrains Mono','SF Mono',monospace;
   background: rgba(0,0,0,.35); border: 1px solid rgba(196,154,60,.25);
   border-radius: 6px; color: var(--text); outline: none;
@@ -136,14 +136,15 @@
   font-size: 11px; color: var(--text3); white-space: nowrap; flex-shrink: 0;
 }
 .sb-nav-btn {
-  height: 30px; padding: 0 8px;
+  height: 44px; min-width: 44px; padding: 0 8px;
+  display: inline-flex; align-items: center; justify-content: center;
   background: rgba(0,0,0,.3); border: 1px solid rgba(196,154,60,.2);
   border-radius: 6px; color: var(--text2); font-size: 13px;
   cursor: pointer; flex-shrink: 0; line-height: 1;
 }
 .sb-nav-btn:active { opacity: .6; }
 .sb-date-input {
-  height: 30px; padding: 0 6px;
+  height: 44px; padding: 0 6px;
   font-size: 13px; font-family: 'JetBrains Mono','SF Mono',monospace;
   background: rgba(0,0,0,.35); border: 1px solid rgba(196,154,60,.25);
   border-radius: 6px; color: var(--text); outline: none;
@@ -185,7 +186,7 @@
 .leg-chip {
   flex: 0 0 auto;
   display: inline-flex; align-items: center; gap: 6px;
-  min-height: 40px; padding: 4px 12px;
+  min-height: 44px; padding: 4px 12px;
   background: rgba(0,0,0,0.30);
   border: 1px solid var(--border);
   border-radius: 8px;
@@ -268,7 +269,8 @@
 }
 .sub-tabbar::-webkit-scrollbar { display: none; }
 .sub-tab-btn {
-  flex-shrink: 0; padding: 10px 14px;
+  flex-shrink: 0; padding: 10px 14px; min-height: 44px;
+  display: inline-flex; align-items: center;
   border: none; background: transparent;
   color: var(--text3); font-size: 14px; font-weight: 600;
   cursor: pointer; border-bottom: 2px solid transparent;

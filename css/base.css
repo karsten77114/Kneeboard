@@ -36,7 +36,7 @@
 
   /* Layout */
   --topbar-h:    62px;
-  --searchbar-h: 46px;
+  --searchbar-h: 56px;   /* 44px 觸控控制 + 上下 6px 呼吸空間（HIG 44pt）*/
   --tabbar-h:    60px;
   --radius-sm: 6px;
   --radius-md: 12px;
@@ -111,7 +111,7 @@ body {
 
 .btn-blue   { background: var(--blue);   color: #0c1118; }
 .btn-danger { background: var(--red);    color: #fff; }
-.btn-sm     { padding: 5px 12px; font-size: 14px; }
+.btn-sm     { padding: 5px 12px; font-size: 14px; min-height: 44px; }
 .btn-full   { width: 100%; }
 
 /* ── Form inputs ──────────────────────────────────────────────── */

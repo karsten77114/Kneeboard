@@ -168,6 +168,12 @@ window.addEventListener('kb-load-flight', async (e) => {
   await _doSbSearch();
 });
 
+// ── Cross-view: switch tab (e.g. Home 今日航班卡 → Flight Crew) ─────
+window.addEventListener('kb-switch-tab', (e) => {
+  const tab = e.detail?.tab;
+  if (tab) _switchTab(tab);
+});
+
 // ── UTC Clock ─────────────────────────────────────────────────────
 
 function _utcNow() {
@@ -367,7 +373,7 @@ function _renderSearchBar() {
                value="${_sbDate.replace(/(\d{4})(\d{2})(\d{2})/, '$1-$2-$3')}">
         <button class="sb-nav-btn" id="sb-next">►</button>
         <button class="btn btn-ghost btn-sm" id="sb-btn"
-                style="height:30px;padding:0 10px;font-size:12px;white-space:nowrap">查詢</button>
+                style="height:44px;padding:0 12px;font-size:12px;white-space:nowrap">查詢</button>
       </div>`;
   } else {
     // No flight — show prominent search with date picker
@@ -379,7 +385,7 @@ function _renderSearchBar() {
                value="${_sbDate.replace(/(\d{4})(\d{2})(\d{2})/, '$1-$2-$3')}">
         <button class="sb-nav-btn" id="sb-next">►</button>
         <button class="btn btn-primary btn-sm" id="sb-btn"
-                style="height:30px;padding:0 14px;font-size:13px;font-weight:700;white-space:nowrap">
+                style="height:44px;padding:0 16px;font-size:13px;font-weight:700;white-space:nowrap">
           ${_sbSearching ? '查詢中…' : '查詢'}
         </button>
         ${_sbSearching ? '<div class="spinner" style="width:16px;height:16px;border-width:2px;flex-shrink:0"></div>' : ''}

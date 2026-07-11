@@ -163,7 +163,8 @@ function _applyStyles() {
     .aw-sec   { padding:4px 12px 2px; font-size:10px; color:var(--text3); letter-spacing:.5px; text-transform:uppercase; border-top:1px solid var(--border); }
     .aw-raw   { padding:6px 12px 10px; font-family:'SF Mono',ui-monospace,monospace; font-size:12px; line-height:1.6; color:var(--text); white-space:pre-wrap; word-break:break-word; }
     .aw-taf   { font-size:11px; color:var(--text2); }
-    .aw-refr  { margin-left:auto; background:none; border:1px solid var(--border); color:var(--text2); border-radius:6px; padding:2px 8px; font-size:12px; cursor:pointer; }
+    .aw-refr  { margin-left:auto; background:none; border:1px solid var(--border); color:var(--text2); border-radius:6px; padding:2px 8px; font-size:12px; cursor:pointer;
+                min-width:44px; min-height:44px; display:inline-flex; align-items:center; justify-content:center; }
     .aw-loading-dot { display:inline-block; width:10px; height:10px; border:2px solid var(--border); border-top-color:var(--text3); border-radius:50%; animation:spin .8s linear infinite; }
 
     /* ── NATO colours ── */
