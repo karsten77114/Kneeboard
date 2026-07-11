@@ -33,6 +33,18 @@ const sidebarEl    = document.getElementById('sidebar');
 // ── Bootstrap ─────────────────────────────────────────────────────
 
 function init() {
+  // 一次性清除舊版 PegaSys 明文憑證：Roster tab 及其登入 UI 已移除、不可達，
+  // 但舊使用者 localStorage 可能仍殘留含明文密碼的 kb_pegasys_creds。
+  storage.remove('pegasys_creds');
+
+  // 還原 Sunlight 高對比模式（駕駛艙強光）狀態
+  if (storage.get('sunlight_mode')) document.documentElement.classList.add('sunlight');
+  // ☀️ 切換鈕以事件委派綁在 topbar 上：topbar 每次 store emit 會重繪 innerHTML，
+  // 委派綁定於容器本身，重繪後仍有效（無需隨每次 _renderTopBar 重掛）。
+  topbarEl.addEventListener('click', e => {
+    if (e.target.closest('#sunlight-toggle')) _toggleSunlight();
+  });
+
   _ensureSubbar();
   _buildTabBar();
   _buildSidebar();
@@ -194,11 +206,25 @@ function _startClock() {
 
 // ── Top Bar ───────────────────────────────────────────────────────
 
-function _utcBlock() {
-  return `<div class="topbar-utc">
-    <span class="topbar-utc-label">UTC</span>
-    <span id="topbar-utc-time">${_utcNow()}</span>
+// Topbar 右側叢集：☀️ Sunlight 切換鈕 + UTC 時鐘
+function _topbarRight() {
+  return `<div class="topbar-right">
+    <button class="sunlight-toggle" id="sunlight-toggle"
+            aria-label="切換 Sunlight 高對比模式" title="Sunlight 模式">☀️</button>
+    <div class="topbar-utc">
+      <span class="topbar-utc-label">UTC</span>
+      <span id="topbar-utc-time">${_utcNow()}</span>
+    </div>
   </div>`;
+}
+
+// Sunlight 高對比模式切換：僅 toggle html.sunlight class + 存 localStorage +
+// toast，不觸發 store emit（避免 render 觸發 emit 的鐵則）。
+function _toggleSunlight() {
+  const on = !document.documentElement.classList.contains('sunlight');
+  document.documentElement.classList.toggle('sunlight', on);
+  storage.set('sunlight_mode', on);
+  showToast(on ? '☀️ Sunlight 模式' : '🌙 標準模式');
 }
 
 function _dateStr(d) {
@@ -217,7 +243,7 @@ function _renderTopBar() {
     topbarEl.innerHTML = `
       <img class="topbar-logo" src="assets/icons/apple-touch-icon.png" alt="Kneeboard">
       <div class="topbar-empty">尚未選擇航班 — 請在主畫面查詢</div>
-      ${_utcBlock()}`;
+      ${_topbarRight()}`;
     return;
   }
 
@@ -242,7 +268,7 @@ function _renderTopBar() {
         ${times   ? `<span class="topbar-times">${times}</span>` : ''}
       </div>
     </div>
-    ${_utcBlock()}`;
+    ${_topbarRight()}`;
 }
 
 // C1：資料時效 chip — LIVE HHMMZ（綠）/ CACHED Xm（琥珀）。資料來源 store.briefing。

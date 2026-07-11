@@ -1,9 +1,18 @@
-const CACHE = 'kneeboard-v69'; // 升版時同步更新 js/utils.js 的 APP_VERSION
+const CACHE = 'kneeboard-v70'; // 升版時同步更新 js/utils.js 的 APP_VERSION
 const PRECACHE = [
   './',
   './index.html',
   './css/base.css',
   './css/layout.css',
+  // Self-hosted vendor（離線關鍵）— Leaflet + Plus Jakarta Sans
+  './assets/vendor/leaflet/leaflet.js',
+  './assets/vendor/leaflet/leaflet.css',
+  './assets/vendor/leaflet/images/layers.png',
+  './assets/vendor/leaflet/images/layers-2x.png',
+  './assets/vendor/leaflet/images/marker-icon.png',
+  './assets/vendor/leaflet/images/marker-icon-2x.png',
+  './assets/vendor/leaflet/images/marker-shadow.png',
+  './assets/fonts/plus-jakarta-sans-latin.woff2',
   './js/app.js',
   './js/store.js',
   './js/utils.js',
@@ -64,7 +73,7 @@ self.addEventListener('fetch', e => {
   const url = new URL(e.request.url);
 
   // Always network-first for API calls
-  if (url.hostname.endsWith('.workers.dev') || url.hostname.includes('unpkg.com')) {
+  if (url.hostname.endsWith('.workers.dev')) {
     e.respondWith(
       fetch(e.request).catch(() =>
         caches.match(e.request).then(r => r || new Response('{"error":"offline"}', {

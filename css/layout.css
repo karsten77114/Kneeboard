@@ -7,11 +7,24 @@
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
   display: grid;
-  grid-template-columns: 80px 1fr 80px;
+  grid-template-columns: 80px 1fr auto;   /* 右欄改 auto 容納 ☀️ 鈕 + UTC */
   align-items: center;
   padding: 0 16px;
   z-index: 200;
 }
+
+/* Right cluster — ☀️ Sunlight 切換鈕 + UTC 時鐘 */
+.topbar-right {
+  display: flex; align-items: center; justify-content: flex-end; gap: 4px;
+}
+.sunlight-toggle {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 44px; height: 44px; padding: 0;   /* 44px 觸控目標；視覺為 emoji 小圖示 */
+  background: transparent; border: none; cursor: pointer;
+  font-size: 17px; line-height: 1; flex-shrink: 0;
+  -webkit-tap-highlight-color: transparent;
+}
+.sunlight-toggle:active { opacity: 0.6; }
 
 .topbar-logo {
   display: block;
@@ -214,7 +227,8 @@
 #main {
   position: fixed;
   top: calc(var(--topbar-h) + var(--searchbar-h));
-  bottom: var(--tabbar-h);
+  /* 與 #tabbar 總高一致（含 home indicator 安全區）*/
+  bottom: calc(var(--tabbar-h) + env(safe-area-inset-bottom, 0px));
   left: 0; right: 0;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
@@ -229,14 +243,16 @@
 /* ── Bottom Tab Bar ───────────────────────────────────────────── */
 #tabbar {
   position: fixed; bottom: 0; left: 0; right: 0;
-  height: var(--tabbar-h);
+  /* 總高 = 內容 60px + home indicator 安全區；內容區維持完整 60px。
+     桌面 env() = 0 → 與舊版無視覺差異。*/
+  height: calc(var(--tabbar-h) + env(safe-area-inset-bottom, 0px));
   background: rgba(13,12,11,0.92);
   border-top: 1px solid var(--border);
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
   display: flex; align-items: stretch;
   z-index: 200;
-  padding-bottom: env(safe-area-inset-bottom, 0);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
 }
 
 .tab-btn {

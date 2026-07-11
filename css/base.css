@@ -1,3 +1,15 @@
+/* ── Self-hosted fonts（離線關鍵）─────────────────────────────────
+   Plus Jakarta Sans 為可變字型（variable font）：單一 latin woff2 檔即涵蓋
+   400–800 全字重，以 font-weight 範圍宣告讓瀏覽器自動插值。
+   （原規劃的 900 該字型不存在，可變軸最高 800；swap 避免離線首屏空白）*/
+@font-face {
+  font-family: 'Plus Jakarta Sans';
+  font-style: normal;
+  font-weight: 400 800;
+  font-display: swap;
+  src: url('../assets/fonts/plus-jakarta-sans-latin.woff2') format('woff2');
+}
+
 /* ── Design Tokens — CARBON × APPLE (方案D) ─────────────────── */
 :root {
   /* Background layers
@@ -273,3 +285,33 @@ body {
 
 /* ── Hidden util ──────────────────────────────────────────────── */
 .hidden { display: none !important; }
+
+/* ── ☀️ Sunlight 高對比模式（駕駛艙強光）─────────────────────────────
+   集中一處覆蓋：提高文字/邊框對比、放大最小可讀字級、取消半透明毛玻璃改
+   實色近黑。由 app.js 切換 html.sunlight class（狀態存 localStorage）。
+   注意：只覆蓋既有 class，不動 inline style 散點。*/
+html.sunlight {
+  --text2:  #d6d2c8;                  /* 次要文字提亮 */
+  --text3:  #a8a398;                  /* 三級文字改不透明，避免陽光下消失 */
+  --border: rgba(255,255,255,0.18);   /* 分隔線加強 */
+}
+/* 固定列取消毛玻璃、改實色近黑不透明（半透明在強光下對比不足）*/
+html.sunlight #topbar,
+html.sunlight #searchbar,
+html.sunlight #subbar,
+html.sunlight #tabbar {
+  background: #0d0c0b;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+/* 全域最小可讀字級：把常見 10–11px 說明/狀態文字提到 13px */
+html.sunlight .topbar-meta span,
+html.sunlight .conn-lbl,
+html.sunlight .card-title,
+html.sunlight .tf-tsub,
+html.sunlight .aw-sec,
+html.sunlight .aw-taf {
+  font-size: 13px;
+}
+/* UTC 時鐘時間放大 14 → 17px */
+html.sunlight .topbar-utc { font-size: 17px; }

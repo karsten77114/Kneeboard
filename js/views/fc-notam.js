@@ -166,6 +166,7 @@ function _render(container) {
       .notam-group { border: 1px solid var(--border); border-radius: var(--radius-sm); overflow: hidden; }
       .notam-group-head {
         display: flex; align-items: center; gap: 8px;
+        min-height: 44px;                /* 觸控目標 ≥44px（checkbox 視覺不變）*/
         padding: 8px 10px; cursor: pointer; user-select: none;
         background: var(--card);
       }
@@ -178,7 +179,8 @@ function _render(container) {
       .notam-group-body { display: flex; flex-direction: column; gap: 3px; padding: 4px 6px 6px; }
 
       .notam-item {
-        display: flex; align-items: flex-start; gap: 8px;
+        display: flex; align-items: center; gap: 8px;
+        min-height: 44px;                /* 觸控目標 ≥44px（checkbox 視覺不變）*/
         background: rgba(255,255,255,0.02); border: 1px solid transparent;
         border-radius: var(--radius-sm); padding: 5px 8px; cursor: pointer;
         transition: border-color 0.15s;
