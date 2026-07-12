@@ -52,7 +52,17 @@ function init() {
   _renderSearchBar();
   _renderSubbar();
   _startClock();
-  _switchTab('home');
+
+  // 冷啟動還原：iOS 殺掉背景 PWA 後重開，把上次的 briefing 從 localStorage 拉回來，
+  // 直接停在 Flight Crew，免得使用者每次重開都要重新搜尋（且離線也能還原）。
+  const hydrated = store.hydrate();
+  if (hydrated) {
+    _sbDate = String(store.flight?.date || '').replace(/-/g, '') || todayStr().replace(/-/g, '');
+    _renderSearchBar();
+    const inp = searchbarEl?.querySelector('#sb-flt-input');
+    if (inp) inp.value = String(store.flight?.flightNumber || '').replace(/^JX/i, '');
+  }
+  _switchTab(hydrated ? 'flightcrew' : 'home');
 
   store.subscribe(() => {
     _renderTopBar();
