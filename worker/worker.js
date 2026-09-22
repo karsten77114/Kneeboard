@@ -531,20 +531,43 @@ function parseCookieValue(setCookieHeaders, cookieName) {
   return null;
 }
 
-// Step 1: 取得初始 LIDO session cookie
+// Step 1: 舊版 LAS 在登入頁發 cookie；新版改由 DWR engine 建立 session。
 async function getLidoSession() {
   const resp = await fetch(
     `${LIDO_LOGIN_URL}?DESMON_RESULT_PAGE=https%3A%2F%2Fsjx.lido.aero%2Flido%2Fshell%2F%23lcb&DESMON_LANG=en`,
     { redirect: 'follow' }
   );
+  if (!resp.ok) throw new Error(`LIDO login page HTTP ${resp.status}`);
 
   // 從 Set-Cookie 取 lido_las
   const setCookie = resp.headers.get('set-cookie') || '';
-  const lidoLas = parseCookieValue([setCookie], 'lido_las');
-  const serverid = parseCookieValue([setCookie], 'las_serverid') || 'docker1';
+  let lidoLas = parseCookieValue([setCookie], 'lido_las');
+  let serverid = parseCookieValue([setCookie], 'las_serverid');
 
-  if (!lidoLas) throw new Error('Failed to get lido_las session cookie');
-  return { lidoLas, serverid };
+  if (lidoLas) return { lidoLas, serverid };
+
+  // Follow the site's dwr/engine.js bootstrap rather than inventing a session ID.
+  const bootstrap = await fetch(`${LIDO_BASE}/lido/las/dwr/call/plaincall/__System.generateId.dwr`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'text/plain',
+      ...(serverid ? { Cookie: `las_serverid=${serverid}` } : {}),
+    },
+    body: [
+      'callCount=1', 'page=%2Flido%2Flas%2Flogin.jsp', 'scriptSessionId=',
+      'instanceId=0', 'batchId=0', 'c0-scriptName=__System',
+      'c0-methodName=generateId', 'c0-id=0',
+    ].join('\n'),
+  });
+  if (!bootstrap.ok) throw new Error(`LIDO DWR bootstrap HTTP ${bootstrap.status}`);
+  const reply = await bootstrap.text();
+  const dwrSessionId = reply.match(/handleCallback\(\s*"0"\s*,\s*"0"\s*,\s*"([A-Za-z0-9._~+/=-]+)"\s*\)/)?.[1];
+  if (!dwrSessionId) throw new Error('Failed to establish LIDO DWR session');
+  const bootstrapCookies = bootstrap.headers.get('set-cookie') || '';
+  lidoLas = parseCookieValue([bootstrapCookies], 'lido_las');
+  serverid = parseCookieValue([bootstrapCookies], 'las_serverid') || serverid;
+
+  return { lidoLas, serverid, dwrSessionId };
 }
 
 // 解碼 lido_csrf cookie（base64 JSON），取出 csrf_id 和 uid
@@ -572,14 +595,14 @@ function decodeJwtPayload(jwt) {
 }
 
 // Step 2: DWR 登入
-async function dwrLogin(userId, password, lidoLas, serverid) {
-  const scriptSessionId = generateUUID().replace(/-/g, '').toUpperCase().substring(0, 16) +
+async function dwrLogin(userId, password, lidoLas, serverid, dwrSessionId) {
+  const scriptSessionId = (dwrSessionId || generateUUID().replace(/-/g, '').toUpperCase().substring(0, 16)) +
     '/' + generateUUID().replace(/-/g, '').toUpperCase().substring(0, 16);
 
   const dwrBody = [
     'callCount=1',
     'page=%2Flido%2Flas%2Flogin.jsp%3FDESMON_RESULT_PAGE%3Dhttps%253A%252F%252Fsjx.lido.aero%252Flido%252Fshell%252F%2523lcb%26DESMON_LANG%3Den',
-    `httpSessionId=${lidoLas}`,
+    ...(lidoLas ? [`httpSessionId=${lidoLas}`] : []),
     `scriptSessionId=${encodeURIComponent(scriptSessionId)}`,
     'instanceId=0',
     'batchId=0',
@@ -597,10 +620,15 @@ async function dwrLogin(userId, password, lidoLas, serverid) {
     method: 'POST',
     headers: {
       'Content-Type': 'text/plain',
-      'Cookie': `lido_las=${lidoLas}; las_serverid=${serverid}`,
+      'Cookie': [
+        lidoLas && `lido_las=${lidoLas}`,
+        serverid && `las_serverid=${serverid}`,
+        dwrSessionId && `DWRSESSIONID=${dwrSessionId}`,
+      ].filter(Boolean).join('; '),
     },
     body: dwrBody,
   });
+  if (!resp.ok) throw new Error(`LIDO login HTTP ${resp.status}`);
 
   const text = await resp.text();
 
@@ -639,7 +667,9 @@ async function dwrLogin(userId, password, lidoLas, serverid) {
 // businessId 依呼叫類型傳入：主 briefing = "GetBriefing"，文件 = "GetDoc{TYPE}"
 function buildLidoHeaders(session, businessId) {
   const { lidoCsrf, lidoLas, serverid, lidoAuth } = session;
-  const cookieParts = [`lido_las=${lidoLas}`, `lido_csrf=${lidoCsrf}`, `las_serverid=${serverid}`];
+  const cookieParts = [`lido_csrf=${lidoCsrf}`];
+  if (lidoLas) cookieParts.push(`lido_las=${lidoLas}`);
+  if (serverid) cookieParts.push(`las_serverid=${serverid}`);
   if (lidoAuth) cookieParts.push(`lido_auth=${lidoAuth}`);
   return {
     'Cookie': cookieParts.join('; '),
@@ -1555,8 +1585,8 @@ async function handleRequest(request, env) {
         });
       }
 
-      const { lidoLas, serverid } = await getLidoSession();
-      const session = await dwrLogin(userId, password, lidoLas, serverid);
+      const { lidoLas, serverid, dwrSessionId } = await getLidoSession();
+      const session = await dwrLogin(userId, password, lidoLas, serverid, dwrSessionId);
 
       // Stateless: encode session as base64 token (no KV needed)
       const sessionToken = btoa(JSON.stringify({ ...session, ts: Date.now() }));
