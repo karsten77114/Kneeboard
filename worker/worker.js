@@ -312,6 +312,39 @@ async function _aiAnalyze(env, parts) {
   return _geminiAnalyze(env.GEMINI_API_KEY, parts);
 }
 
+// Reject repetitive model output before storage; retry from the original source once.
+function _validateNoticeAnalysis(notice) {
+  if (!notice || typeof notice.title !== 'string' || !notice.title.trim() ||
+      !Array.isArray(notice.summary) || !notice.summary.length ||
+      notice.summary.some(item => typeof item !== 'string' || !item.trim())) {
+    throw new Error('公告分析缺少有效標題或重點');
+  }
+  const keys = notice.summary.map(item => item.normalize('NFKC').replace(/\s+/g, '').toLowerCase());
+  if (new Set(keys).size !== keys.length) {
+    throw new Error('公告摘要出現重複內容，無法確認分析完整性');
+  }
+  return notice;
+}
+
+async function _analyzeValidated(env, parts, batch = false) {
+  const analyze = batch ? _aiAnalyzeBatch : _aiAnalyze;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const input = attempt ? [...parts, { text: '上次分析重點重複或不完整。請重新閱讀原始文件；每條重點須為不同的實質內容，不得為湊足條數重複句子。' }] : parts;
+    const result = await analyze(env, input);
+    try {
+      if (batch) {
+        if (!Array.isArray(result) || !result.length) throw new Error('公告分析未產生任何公告');
+        result.forEach(_validateNoticeAnalysis);
+      } else {
+        _validateNoticeAnalysis(result);
+      }
+      return result;
+    } catch (error) {
+      if (attempt === 1) throw error;
+    }
+  }
+}
+
 // ── UUID ──────────────────────────────────────────────────────────
 
 function generateUUID() {
@@ -2524,7 +2557,7 @@ async function handleRequest(request, env) {
       // 捷徑收尾只顯示 message 這一個欄位即可
       if (isBatch) {
         let analyzedList;
-        try { analyzedList = await _aiAnalyzeBatch(env, parts); }
+        try { analyzedList = await _analyzeValidated(env, parts, true); }
         catch (e) {
           return new Response(JSON.stringify({ ok: false, error: e.message, message: `❌ 分析失敗：${e.message}` }), {
             status: 500, headers: { ...headers, 'Content-Type': 'application/json' },
@@ -2547,7 +2580,7 @@ async function handleRequest(request, env) {
       }
 
       let analyzed;
-      try { analyzed = await _aiAnalyze(env, parts); }
+      try { analyzed = await _analyzeValidated(env, parts); }
       catch (e) {
         return new Response(JSON.stringify({ ok: false, error: e.message, message: `❌ 分析失敗：${e.message}` }), {
           status: 500, headers: { ...headers, 'Content-Type': 'application/json' },
