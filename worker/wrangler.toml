@@ -6,6 +6,7 @@ compatibility_date = "2024-01-01"
 #   LIDO_USER, LIDO_PASS   — LIDO 自動登入
 #   GEMINI_API_KEY          — Gemini AI
 #   UPLOAD_TOKEN            — iOS Shortcut 上傳憑證
+#   NOTICE_IMPORT_TOKEN     — 雲端橋接專用，只允許結構化公告匯入
 # 注意：ELB 不需帳密，首頁 JSESSIONID cookie 即可驗證
 
 [[kv_namespaces]]

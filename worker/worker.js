@@ -88,6 +88,7 @@ const _IMPORT_NOTICE_KEYS = ['title', 'issue_date', 'effective_date', 'source', 
   'aircraft', 'urgency', 'summary', 'action_required', 'raw_text'];
 const _IMPORT_MANAGED_KEYS = ['id', 'created_at', 'updated_at', 'source_type', '_source'];
 const _IMPORT_PROVENANCE_KEYS = ['kind', 'note_id', 'item_id', 'sha256', 'filename'];
+const _IMPORT_PROVENANCE_KINDS = ['apple_notes', 'chat_attachment'];
 const _IMPORT_SOURCE_TAGS = ['fleet_notice', 'message', 'email'];
 const _IMPORT_TAGS = ['ops', 'safety', 'manual_update', 'admin', 'app_notice'];
 const _IMPORT_AIRCRAFT = ['a321', 'a330', 'a350', 'all'];
@@ -164,7 +165,10 @@ function _validateNoticeImport(body) {
 
   const extraProv = Object.keys(p).filter(k => !_IMPORT_PROVENANCE_KEYS.includes(k));
   if (extraProv.length) return { error: `provenance 含未知欄位：${extraProv.join(', ')}` };
-  if (p.kind !== 'apple_notes') return { error: 'provenance.kind 必須是 apple_notes' };
+  if (!_IMPORT_PROVENANCE_KINDS.includes(p.kind)) {
+    return { error: `provenance.kind 只接受 ${_IMPORT_PROVENANCE_KINDS.join('/')}` };
+  }
+  // chat_attachment 沿用 note_id 欄位承載對話／討論串 ID（必填，不可缺漏）
   for (const f of ['note_id', 'item_id']) {
     err = str(p[f], `provenance.${f}`, 200);
     if (err) return { error: err };
@@ -2571,8 +2575,10 @@ async function handleRequest(request, env) {
     if (url.pathname === '/api/notices/import' && request.method === 'POST') {
       const jsonHeaders = { ...headers, 'Content-Type': 'application/json' };
       const authVal = (request.headers.get('Authorization') || '').replace(/^Bearer\s*/i, '').trim() || (url.searchParams.get('token') || '');
-      if (!env.UPLOAD_TOKEN || authVal !== env.UPLOAD_TOKEN) {
-        return new Response(JSON.stringify({ ok: false, saved: false, error: 'Unauthorized', message: '❌ 憑證錯誤：UPLOAD_TOKEN 不符，公告未匯入' }), {
+      const importAuthorized = (env.NOTICE_IMPORT_TOKEN && authVal === env.NOTICE_IMPORT_TOKEN)
+        || (env.UPLOAD_TOKEN && authVal === env.UPLOAD_TOKEN);
+      if (!importAuthorized) {
+        return new Response(JSON.stringify({ ok: false, saved: false, error: 'Unauthorized', message: '❌ 憑證錯誤：公告未匯入' }), {
           status: 401, headers: jsonHeaders,
         });
       }

@@ -35,6 +35,7 @@ Kneeboard repo 的 agent 入口，可在獨立 clone（含雲端）直接使用�
 
 ## SJX Bulletin 公告收件
 
-- 使用者說「處理公告」時，來源是 iCloud 備忘錄 `✈️ Pilot / SJX Bulletin`，不是新資料夾。
+- 使用者說「處理公告」時，優先處理本次對話附上的 PDF、圖片或文字；沒有新附件且明確指定備忘錄時，才讀 iCloud 備忘錄 `✈️ Pilot / SJX Bulletin`。
+- Mac 關機的雲端流程：讀 `docs/NOTICE_IMPORT.md` 的雲端橋接，透過已連接 GitHub 在私人 `karsten77114/Karsten-Agent` 建立匯入 issue，等待帶有 `verified=true` 的讀回收據。不得將公告原文放到公開 Kneeboard repo。
 - 先讀 `../../../000_Agent/skills/kneeboard-notice-inbox/SKILL.md`；獨立 clone 沒有此檔時，讀 `docs/NOTICE_IMPORT.md`。
 - 直接由目前代理讀原文、整理，使用 `scripts/import_notice.py` 上架，不呼叫 Gemini API。只有讀回核對成功，才透過原生備忘錄介面移除對應已處理內容；保留 SJX Bulletin 備忘錄本身及標題。

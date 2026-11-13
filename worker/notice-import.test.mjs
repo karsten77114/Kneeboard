@@ -224,6 +224,42 @@ test('schema violations return 400 with readable message', async () => {
   }
 });
 
+test('chat_attachment: created with conversation ID in note_id, no AI/external fetch', async () => {
+  const kv = makeKV();
+  const p = { kind: 'chat_attachment', note_id: 'conv-2026-11-14-abc', item_id: 'att-001', filename: 'fn-26-0000.pdf' };
+  const { status, json } = await post(payload({}, p), { kv });
+  assert.equal(status, 200);
+  assert.equal(json.saved, true);
+  assert.equal(json.action, 'created');
+  const [stored] = list(kv);
+  assert.equal(stored._source.kind, 'chat_attachment');
+  assert.equal(stored._source.note_id, 'conv-2026-11-14-abc');
+  assert.equal(stored._source.item_id, 'att-001');
+  assert.equal(stored.source_type, 'pdf');
+  assert.equal(fetchCalls.length, 0);
+});
+
+test('chat_attachment: missing conversation identifier is rejected', async () => {
+  for (const p of [{ note_id: '' }, { note_id: '   ' }, { note_id: undefined }]) {
+    const kv = makeKV();
+    const r = await post(payload({}, { kind: 'chat_attachment', ...p }), { kv });
+    assert.equal(r.status, 400, JSON.stringify(p));
+    assert.equal(r.json.saved, false);
+    assert.equal(kv.puts, 0);
+  }
+});
+
+test('unknown provenance kind is rejected; apple_notes still accepted', async () => {
+  for (const kind of ['chat', 'email_attachment', 'CHAT_ATTACHMENT', '', undefined]) {
+    const kv = makeKV();
+    const r = await post(payload({}, { kind }), { kv });
+    assert.equal(r.status, 400, String(kind));
+    assert.equal(kv.puts, 0);
+  }
+  const ok = await post(payload({}, { kind: 'apple_notes' }), { kv: makeKV() });
+  assert.equal(ok.status, 200);
+});
+
 test('malformed JSON returns 400', async () => {
   const kv = makeKV();
   const r = await post(null, { kv, raw: '{not json' });
@@ -264,5 +300,25 @@ test('imported notice is readable via GET /api/notices with _source.sha256', asy
   const got = await res.json();
   const found = got.find(n => n.id === r.json.notice_id);
   assert.equal(found._source.sha256, SHA_A);
+  assert.equal(fetchCalls.length, 0);
+});
+
+test('cloud import credential authorizes import only, never deletion or AI upload', async () => {
+  const kv = makeKV();
+  const env = { NOTICE_IMPORT_TOKEN: 'import-only', UPLOAD_TOKEN: TOKEN, NOTICES_KV: kv };
+  const response = await worker.fetch(new Request('https://w.test/api/notices/import', {
+    method: 'POST', headers: { Authorization: 'Bearer import-only', 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload({}, { kind: 'chat_attachment' })),
+  }), env);
+  assert.equal(response.status, 200);
+  assert.equal((await response.json()).saved, true);
+  const before = kv.puts;
+  for (const [path, method] of [['/api/notices', 'DELETE'], ['/api/notices/any', 'DELETE'], ['/api/notices/any', 'PATCH'], ['/api/notices/dedup', 'POST'], ['/api/notices/upload', 'POST']]) {
+    const denied = await worker.fetch(new Request('https://w.test' + path, {
+      method, headers: { Authorization: 'Bearer import-only' },
+    }), env);
+    assert.equal(denied.status, 401, path);
+  }
+  assert.equal(kv.puts, before);
   assert.equal(fetchCalls.length, 0);
 });

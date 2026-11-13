@@ -6,7 +6,7 @@
 
 ## 匯入 API
 
-`POST /api/notices/import`，與既有上傳相同的 Bearer `UPLOAD_TOKEN` 認證。
+`POST /api/notices/import`，Bearer 認證：既有 `UPLOAD_TOKEN`，或僅限本端點的 `NOTICE_IMPORT_TOKEN`。雲端橋接使用後者，不具刪除公告或呼叫 AI 上傳端點的權限。
 
 Request JSON：
 
@@ -42,6 +42,44 @@ Request JSON：
 - 仍沿用既有最多 200 筆公告的儲存規則。
 - `?dry_run=true` 只驗證並回 preview，不讀寫 KV、saved=false、dry_run=true；這不是發布成功。
 - 正式成功回 ok=true/saved=true/action/notice_id/notice_issue_date/total/message，並且可從 GET /api/notices 讀回該 id 與 _source.sha256。JSON 格式錯誤或 schema 不符回 400，認證失敗回 401，儲存失敗回 500/503；訊息必須人類可讀。
+
+## 聊天附件來源（chat_attachment）
+
+`provenance.kind` 只接受 `apple_notes` 與 `chat_attachment`，其他值回 400。`apple_notes` 行為不變（向後相容）。
+
+`chat_attachment` 沿用同一組 envelope 欄位，不新增欄位：
+
+- `note_id`：**對話／討論串 ID**（conversation/thread ID），必填非空；缺漏或空白回 400。
+- `item_id`：實際附件 ID；若沒有附件 ID（純文字），用 `text:<sha256>`。
+- `sha256`、`filename`：驗證規則與 `apple_notes` 相同（64 位小寫十六進位；filename 非空且不含路徑分隔符或 NUL）。
+
+仍需 Bearer 認證（`NOTICE_IMPORT_TOKEN` 或既有 `UPLOAD_TOKEN`），不呼叫任何模型或外部 API。
+
+## 雲端橋接（GitHub Issue）
+
+雲端環境無法直接取得本機工具時，透過私人 repo `karsten77114/Karsten-Agent` 的 issue 傳遞匯入請求：
+
+- issue 標題必須為 `[Kneeboard Import]`（可附後綴供辨識）。
+- issue 內文為 JSON，格式：
+
+```json
+{
+  "version": 1,
+  "operation": "import",
+  "notice": { "…": "同上方既有 notice schema" },
+  "provenance": {
+    "kind": "chat_attachment",
+    "note_id": "對話／討論串 ID",
+    "item_id": "附件 ID 或 text:<sha256>",
+    "sha256": "64 個小寫十六進位字元",
+    "filename": "附件名稱.pdf"
+  }
+}
+```
+
+- `operation` 為 `import`（實際匯入）或 `dry_run`（對應 `?dry_run=true`，僅驗證）。
+- **issue 內不得放任何秘密**（token、憑證、私鑰）。專用 Bearer `NOTICE_IMPORT_TOKEN` 存在於 Cloudflare；同值由私人 repo 的 `KNEEBOARD_IMPORT_TOKEN` Secret 注入 cloud runner 執行環境，不寫入 issue、留言或日誌。
+- cloud runner 讀取 issue 後先 `POST /api/notices/import`，再 `GET /api/notices` 驗證 id 與 `_source.sha256` 同時匹配；僅在讀回驗證成功時才回報成功。`dry_run` 不算發布成功。
 
 ## 本機發布工具
 
