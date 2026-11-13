@@ -1,4 +1,4 @@
-const CACHE = 'kneeboard-v73'; // 升版時同步更新 js/utils.js 的 APP_VERSION
+const CACHE = 'kneeboard-v74'; // 升版時同步更新 js/utils.js 的 APP_VERSION
 const PRECACHE = [
   './',
   './index.html',
@@ -77,6 +77,8 @@ self.addEventListener('fetch', e => {
     e.respondWith(
       fetch(e.request).catch(() =>
         caches.match(e.request).then(r => r || new Response('{"error":"offline"}', {
+          status: 503,
+          statusText: 'Service Unavailable',
           headers: { 'Content-Type': 'application/json' }
         }))
       )

@@ -66,12 +66,23 @@ async function _fetch() {
   const el = document.getElementById('nb-list');
   if (!el) return;
   el.innerHTML = '<div class="nb-loading">載入中…</div>';
+  let errorMessage = '公告載入失敗，請稍後再試';
+  const fail = message => { errorMessage = message; throw new Error(message); };
   try {
-    const res = await fetch(`${WORKER_BASE}/api/notices`);
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const raw = await res.json();
+    let res;
+    try {
+      res = await fetch(`${WORKER_BASE}/api/notices`);
+    } catch {
+      fail('網路連線失敗，無法載入公告');
+    }
+    let raw = null;
+    try { raw = await res.json(); } catch { /* 非 JSON，下方依狀態判斷 */ }
+    const isOffline = raw && !Array.isArray(raw) && raw.error === 'offline';
+    if (isOffline) fail('目前離線，無法載入公告');
+    if (!res.ok) fail('公告服務暫時無法使用，請稍後再試');
+    if (!Array.isArray(raw)) fail('公告資料格式異常，請稍後再試');
     const normDate = d => (d || '').replace(/\//g, '-');
-    _notices = raw.sort((a, b) => {
+    _notices = [...raw].sort((a, b) => {
       const da = normDate(a.issue_date), db = normDate(b.issue_date);
       if (da && db) return db.localeCompare(da);
       if (da)       return -1;
@@ -81,7 +92,11 @@ async function _fetch() {
     _renderList();
     _updateBadge();
   } catch (e) {
-    el.innerHTML = `<div class="nb-empty">無法載入公告（${e.message}）</div>`;
+    // 失敗不等於「沒有公告」：顯示簡潔提示與重試，不洩漏原始錯誤內容
+    const msg = errorMessage;
+    el.innerHTML = `<div class="nb-empty nb-error">${msg}<br><button class="btn btn-ghost btn-sm" id="nb-retry-btn">重試</button></div>`;
+    const retry = el.querySelector?.('#nb-retry-btn');
+    if (retry) retry.onclick = _fetch;
   }
 }
 
