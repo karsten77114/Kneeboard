@@ -1,4 +1,4 @@
-const CACHE = 'kneeboard-v74'; // 升版時同步更新 js/utils.js 的 APP_VERSION
+const CACHE = 'kneeboard-v75'; // 升版時同步更新 js/utils.js 的 APP_VERSION
 const PRECACHE = [
   './',
   './index.html',
@@ -32,6 +32,7 @@ const PRECACHE = [
   './js/views/tools.js',
   './assets/airports.json',
   './manifest.json',
+  './update.html',
 ];
 
 // ── Dev mode：localhost / 127.0.0.1 完全不快取 ──────────────────
@@ -45,15 +46,25 @@ self.addEventListener('install', e => {
     return;
   }
   e.waitUntil(
-    caches.open(CACHE).then(c => c.addAll(PRECACHE)).then(() => self.skipWaiting())
+    // cache:'reload' 繞過 HTTP cache，避免把舊資源寫進新版 cache
+    caches.open(CACHE)
+      .then(c => c.addAll(PRECACHE.map(u => new Request(u, { cache: 'reload' }))))
+      .then(() => self.skipWaiting())
   );
+});
+
+// 頁面（update.html）以 MessageChannel 查詢目前 SW 的 cache 版本
+self.addEventListener('message', e => {
+  if (e.data?.type === 'GET_VERSION' && e.ports?.[0]) {
+    e.ports[0].postMessage({ type: 'VERSION', version: CACHE });
+  }
 });
 
 self.addEventListener('activate', e => {
   console.log(`[SW] Activating ${CACHE}...`);
   e.waitUntil(
     caches.keys().then(keys =>
-      Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k)))
+      Promise.all(keys.filter(k => k.startsWith('kneeboard-') && k !== CACHE).map(k => caches.delete(k)))
     ).then(() => self.clients.claim()).then(() => {
       // 新版 SW 接管後，通知所有開啟的頁面重新整理
       return self.clients.matchAll({ type: 'window' }).then(clients => {

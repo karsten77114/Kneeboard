@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0d0c0b">
+<title>Kneeboard 更新</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #0d0c0b; color: #e8e4da;
+    font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif; }
+  main { min-height: 100%; display: flex; flex-direction: column; align-items: center;
+    justify-content: center; gap: 16px; padding: 24px; box-sizing: border-box; text-align: center; }
+  h1 { font-size: 20px; margin: 0; }
+  #status { font-size: 16px; line-height: 1.5; max-width: 420px; }
+  #detail { font-size: 12px; color: #a09a8e; word-break: break-all; }
+  .err { color: #ff8a7a; }
+  .ok { color: #7bd88f; }
+  button { min-height: 48px; padding: 0 24px; font-size: 16px; font-weight: 700; border-radius: 10px;
+    border: 1px solid #c49a3c; background: #c49a3c; color: #0d0c0b; cursor: pointer; }
+  button.ghost { background: transparent; color: #c49a3c; }
+  .row { display: flex; gap: 12px; flex-wrap: wrap; justify-content: center; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Kneeboard 更新</h1>
+  <div id="status">準備中…</div>
+  <div id="detail"></div>
+  <div class="row">
+    <button id="retry" hidden>重試</button>
+    <button id="back" class="ghost" hidden>返回</button>
+  </div>
+</main>
+<script>
+(function () {
+  var TARGET = 'kneeboard-v75';          // 升版時同步 sw.js CACHE
+  var TIMEOUT_MS = 45000;
+  var statusEl = document.getElementById('status');
+  var detailEl = document.getElementById('detail');
+  var retryBtn = document.getElementById('retry');
+  var backBtn = document.getElementById('back');
+  var running = false;
+
+  function verNum(v) {
+    var m = /^kneeboard-v(\d+)$/.exec(v || '');
+    return m ? parseInt(m[1], 10) : -1;
+  }
+  function setStatus(text, cls) { statusEl.textContent = text; statusEl.className = cls || ''; }
+  function sleep(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
+
+  function goBack() {
+    var u = new URL('./', document.baseURI);
+    u.searchParams.set('updated', String(Date.now()));
+    location.replace(u);
+  }
+
+  // 以 MessageChannel 詢問 worker 的 cache 版本；舊版 SW 不會回覆 → timeout 回 null
+  function askVersion(worker) {
+    return new Promise(function (resolve) {
+      if (!worker) return resolve(null);
+      var done = false;
+      var ch = new MessageChannel();
+      var t = setTimeout(function () { if (!done) { done = true; resolve(null); } }, 1500);
+      ch.port1.onmessage = function (e) {
+        if (done) return;
+        done = true; clearTimeout(t);
+        resolve(e.data && e.data.type === 'VERSION' ? e.data.version : null);
+      };
+      try { worker.postMessage({ type: 'GET_VERSION' }, [ch.port2]); }
+      catch (_) { done = true; clearTimeout(t); resolve(null); }
+    });
+  }
+
+  async function run() {
+    if (running) return;
+    running = true;
+    retryBtn.hidden = true; backBtn.hidden = true;
+    detailEl.textContent = '目標版本 ' + TARGET;
+    try {
+      if (!('serviceWorker' in navigator)) throw new Error('此瀏覽器不支援 Service Worker');
+      setStatus('正在檢查更新…');
+      var reg = await navigator.serviceWorker.register('./sw.js', { scope: './', updateViaCache: 'none' });
+      var updateErr = null;
+      try { await reg.update(); } catch (e) { updateErr = e; }
+
+      var deadline = Date.now() + TIMEOUT_MS;
+      var lastUpdate = Date.now();
+      var seen = null;
+      while (Date.now() < deadline) {
+        var pending = reg.installing || reg.waiting;
+        var active = reg.active;
+        seen = await askVersion(active);
+        if (verNum(seen) >= verNum(TARGET) && active && active.state === 'activated') {
+          setStatus('已是最新版本（' + seen + '），返回中…', 'ok');
+          detailEl.textContent = '';
+          await sleep(400);
+          goBack();
+          return;
+        }
+        if (pending) {
+          setStatus('正在安裝新版本…');
+        } else if (updateErr && Date.now() - lastUpdate > 3000) {
+          // 沒有新版 worker 且更新請求失敗 → 不假成功，直接回報
+          throw updateErr;
+        } else if (Date.now() - lastUpdate > 5000) {
+          lastUpdate = Date.now();
+          try { await reg.update(); updateErr = null; } catch (e) { updateErr = e; }
+        }
+        detailEl.textContent = '目標 ' + TARGET + '　目前 ' + (seen || '舊版/未知');
+        await sleep(500);
+      }
+      throw new Error('等待新版啟用逾時（目前 ' + (seen || '舊版/未知') + '）');
+    } catch (e) {
+      setStatus('更新失敗：' + (e && e.message ? e.message : e), 'err');
+      retryBtn.hidden = false; backBtn.hidden = false;
+    } finally {
+      running = false;
+    }
+  }
+
+  retryBtn.addEventListener('click', run);
+  backBtn.addEventListener('click', function () { location.replace(new URL('./', document.baseURI)); });
+  run();
+})();
+</script>
+</body>
+</html>

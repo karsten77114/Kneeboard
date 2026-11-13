@@ -26,6 +26,18 @@
 }
 .sunlight-toggle:active { opacity: 0.6; }
 
+/* 版本 / 更新入口：沿用 Logo 左欄，保留航班資訊寬度 */
+.version-btn {
+  display: inline-flex; flex-direction: column; gap: 2px; align-items: center; justify-content: center;
+  width: 56px; height: 56px; padding: 0;
+  background: transparent; border: none; cursor: pointer;
+  color: var(--text2); font-size: 12px; font-weight: 700;
+  letter-spacing: 0.02em; line-height: 1; flex-shrink: 0;
+  -webkit-tap-highlight-color: transparent;
+}
+.version-btn:active { opacity: 0.6; }
+.version-btn .topbar-logo { width: 30px; height: 30px; }
+
 .topbar-logo {
   display: block;
   height: 38px;

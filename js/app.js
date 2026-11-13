@@ -5,7 +5,7 @@ import * as Roster     from './views/roster.js';  // 保留 storage helpers（sa
 import * as PA         from './views/pa.js';
 import * as Tools      from './views/tools.js';
 import { fetchBriefing, ensureLido, preloadMetarForFlight, preloadElbForFlight } from './services/api.js';
-import { showToast, todayStr, toICAO } from './utils.js';
+import { showToast, todayStr, toICAO, APP_VERSION } from './utils.js';
 import storage from './services/storage.js';
 
 // Roster tab 已移至 Logbook（個人資料集中管理）
@@ -43,6 +43,7 @@ function init() {
   // 委派綁定於容器本身，重繪後仍有效（無需隨每次 _renderTopBar 重掛）。
   topbarEl.addEventListener('click', e => {
     if (e.target.closest('#sunlight-toggle')) _toggleSunlight();
+    if (e.target.closest('#version-btn')) location.assign(new URL('update.html', document.baseURI));
   });
 
   _ensureSubbar();
@@ -75,19 +76,46 @@ function init() {
   window.addEventListener('online',  () => { _isOffline = false; _renderSubbar(); showToast('✅ 網路已恢復'); });
 
   if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('./sw.js').catch(() => {});
-    navigator.serviceWorker.addEventListener('message', event => {
-      if (event.data?.type === 'SW_UPDATED') {
-        showToast('✅ 應用程式已更新至最新版本');
-        setTimeout(() => window.location.reload(), 1500);
-      }
-    });
+    _initServiceWorker();
   }
 
   // Roster import via hash: #roster?fn=703&date=20260608
   const deepLinkConsumed = _handleRosterHash();
   // A2：無 deep link 時，若有今日/生效中的 pairing 則自動載入（停在 Home）
   _autoLoadToday(deepLinkConsumed);
+}
+
+// SW 註冊 + 更新檢查。只有「載入時已有 controller」的升級才會在 controllerchange 重載一次；
+// 初次安裝（無 controller）的 clients.claim() 不重載，避免初裝重載循環。
+// 重載僅由 controllerchange 觸發（不再聽 SW_UPDATED），避免雙重重載競態。
+function _initServiceWorker() {
+  const sw = navigator.serviceWorker;
+  const hadController = !!sw.controller;
+  let reloaded = false;
+  let registration = null;
+  let checking = false;
+
+  sw.addEventListener('controllerchange', () => {
+    if (!hadController || reloaded) return;
+    reloaded = true;
+    showToast('✅ 應用程式已更新至最新版本');
+    setTimeout(() => window.location.reload(), 800);
+  });
+
+  const checkUpdate = async () => {
+    if (!registration || checking) return;
+    checking = true;
+    try { await registration.update(); } catch (_) {} finally { checking = false; }
+  };
+
+  sw.register('./sw.js', { updateViaCache: 'none' })
+    .then(reg => { registration = reg; checkUpdate(); })
+    .catch(() => {});
+
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') checkUpdate();
+  });
+  window.addEventListener('online', checkUpdate);
 }
 
 // 在 searchbar 下方建立固定的 subbar 容器（放離線橫幅 + leg 切換 chips）
@@ -216,6 +244,15 @@ function _startClock() {
 
 // ── Top Bar ───────────────────────────────────────────────────────
 
+// Logo 與版本共用原有左欄，避免縮小手機上的航班資訊。
+function _topbarBrand() {
+  return `<button class="version-btn" id="version-btn"
+                  aria-label="檢查更新（目前 ${APP_VERSION}）" title="檢查更新">
+    <img class="topbar-logo" src="assets/icons/apple-touch-icon.png" alt="Kneeboard">
+    <span>${APP_VERSION} ↻</span>
+  </button>`;
+}
+
 // Topbar 右側叢集：☀️ Sunlight 切換鈕 + UTC 時鐘
 function _topbarRight() {
   return `<div class="topbar-right">
@@ -251,7 +288,7 @@ function _renderTopBar() {
   const f = store.flight;
   if (!f) {
     topbarEl.innerHTML = `
-      <img class="topbar-logo" src="assets/icons/apple-touch-icon.png" alt="Kneeboard">
+      ${_topbarBrand()}
       <div class="topbar-empty">尚未選擇航班 — 請在主畫面查詢</div>
       ${_topbarRight()}`;
     return;
@@ -261,7 +298,7 @@ function _renderTopBar() {
   const sta = f.sta || '';
   const times = [std, sta].filter(Boolean).join('→');
   topbarEl.innerHTML = `
-    <img class="topbar-logo" src="assets/icons/apple-touch-icon.png" alt="KB">
+    ${_topbarBrand()}
     <div class="topbar-flight">
       <div class="topbar-main-row">
         <span class="topbar-flt-num">${f.flightNumber || ''}</span>
