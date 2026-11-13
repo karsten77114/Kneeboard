@@ -64,7 +64,7 @@ async function _noticesGet(env) {
 }
 
 async function _noticesSet(env, list) {
-  if (!env.NOTICES_KV) return;
+  if (!env.NOTICES_KV) throw new Error('NOTICES_KV 尚未綁定，無法儲存公告');
   await env.NOTICES_KV.put('notices_list', JSON.stringify(list));
 }
 
@@ -2550,6 +2550,17 @@ async function handleRequest(request, env) {
       }
 
       const isBatch = url.searchParams.get('batch') === 'true';
+      // dry_run：只做真實 AI 分析與正規化，完全不讀寫 notices_list
+      const isDryRun = url.searchParams.get('dry_run') === 'true';
+      const jsonHeaders = { ...headers, 'Content-Type': 'application/json' };
+
+      // 正式上傳在無 KV binding 時 fail closed（不可靜默成功）
+      if (!isDryRun && !env.NOTICES_KV) {
+        return new Response(JSON.stringify({
+          ok: false, saved: false, error: 'NOTICES_KV not bound',
+          message: '❌ 儲存失敗：伺服器未綁定 NOTICES_KV，公告未儲存',
+        }), { status: 503, headers: jsonHeaders });
+      }
       const srcType = parts.some(p => p.inline_data?.mime_type?.includes('pdf'))   ? 'pdf'
                     : parts.some(p => p.inline_data?.mime_type?.includes('image')) ? 'image'
                     : 'text';
@@ -2565,19 +2576,35 @@ async function handleRequest(request, env) {
           });
         }
         const now = new Date().toISOString();
-        const list = await _noticesGet(env);
-        const newNotices = analyzedList
-          .map(a => ({ id: generateUUID(), created_at: now, source_type: srcType, ...a }))
-          .filter(n => !_isDuplicate(n, list));
-        const merged = [...newNotices, ...list].slice(0, 200);
-        await _noticesSet(env, merged);
+        if (isDryRun) {
+          const preview = analyzedList.map(a => ({ source_type: srcType, ...a }));
+          return new Response(JSON.stringify({
+            ok: true, saved: false, dry_run: true, count: 0, analyzed: preview.length, preview,
+            message: `🔍 僅分析預覽，未儲存（共分析 ${preview.length} 筆）`,
+          }), { headers: jsonHeaders });
+        }
+        let list, newNotices, total;
+        try {
+          list = await _noticesGet(env);
+          newNotices = analyzedList
+            .map(a => ({ id: generateUUID(), created_at: now, source_type: srcType, ...a }))
+            .filter(n => !_isDuplicate(n, list));
+          const merged = [...newNotices, ...list].slice(0, 200);
+          total = merged.length;
+          if (newNotices.length) await _noticesSet(env, merged);
+        } catch (e) {
+          return new Response(JSON.stringify({
+            ok: false, saved: false, error: e.message, message: `❌ 儲存失敗：${e.message}`,
+          }), { status: 500, headers: jsonHeaders });
+        }
         const skippedN = analyzedList.length - newNotices.length;
+        const allDup = newNotices.length === 0;
         return new Response(JSON.stringify({
-          ok: true, count: newNotices.length, skipped: skippedN,
-          message: `✅ 已上傳 ${newNotices.length} 筆${skippedN ? `（略過重複 ${skippedN} 筆）` : ''}`,
-        }), {
-          headers: { ...headers, 'Content-Type': 'application/json' },
-        });
+          ok: true, saved: !allDup, count: newNotices.length, skipped: skippedN, total,
+          message: allDup
+            ? `⚠️ 全部 ${skippedN} 筆皆為重複公告，未新增任何公告`
+            : `✅ 已上傳 ${newNotices.length} 筆${skippedN ? `（略過重複 ${skippedN} 筆）` : ''}`,
+        }), { headers: jsonHeaders });
       }
 
       let analyzed;
@@ -2609,26 +2636,51 @@ async function handleRequest(request, env) {
         ...(_mappedSourceTag ? { source_tag: _mappedSourceTag } : {}),
       };
 
-      const list = await _noticesGet(env);
-      const dupFp = _noticeFingerprint(notice);
-      const dupIdx = list.findIndex(e => _noticeFingerprint(e) === dupFp);
-      if (dupIdx !== -1) {
-        // 重複時用新分析結果覆蓋（保留原 id 與 created_at）
-        notice.id         = list[dupIdx].id;
-        notice.created_at = list[dupIdx].created_at;
-        list[dupIdx] = notice;
-      } else {
-        list.unshift(notice);
-      }
-      await _noticesSet(env, list.slice(0, 200));
-
       const nBullets = Array.isArray(notice.summary) ? notice.summary.length : 0;
+      const label = notice.title || notice.source || '（無標題）';
+
+      if (isDryRun) {
+        const preview = { ...notice };
+        delete preview.id;
+        delete preview.created_at;
+        return new Response(JSON.stringify({
+          ok: true, saved: false, dry_run: true, notice_issue_date: notice.issue_date || null, preview,
+          message: `🔍 僅分析預覽，未儲存：${label}（${nBullets} 條重點）`,
+        }), { headers: jsonHeaders });
+      }
+
+      let dupIdx, total;
+      try {
+        const list = await _noticesGet(env);
+        const dupFp = _noticeFingerprint(notice);
+        dupIdx = list.findIndex(e => _noticeFingerprint(e) === dupFp);
+        if (dupIdx !== -1) {
+          // 重複時用新分析結果覆蓋（保留原 id 與 created_at，加 updated_at）
+          notice.id         = list[dupIdx].id;
+          notice.created_at = list[dupIdx].created_at;
+          notice.updated_at = new Date().toISOString();
+          list[dupIdx] = notice;
+        } else {
+          list.unshift(notice);
+        }
+        const finalList = list.slice(0, 200);
+        total = finalList.length;
+        await _noticesSet(env, finalList);
+      } catch (e) {
+        return new Response(JSON.stringify({
+          ok: false, saved: false, error: e.message, message: `❌ 儲存失敗：${e.message}`,
+        }), { status: 500, headers: jsonHeaders });
+      }
+
+      const isUpdate = dupIdx !== -1;
+      const dateLabel = notice.issue_date || '未知';
       return new Response(JSON.stringify({
-        ok: true, updated: dupIdx !== -1, notice_id: notice.id, notice_issue_date: notice.issue_date || null, notice,
-        message: `${dupIdx !== -1 ? '⟳ 已更新' : '✅ 已上傳'}：${notice.title || notice.source || '（無標題）'}（${nBullets} 條重點）`,
-      }), {
-        headers: { ...headers, 'Content-Type': 'application/json' },
-      });
+        ok: true, saved: true, action: isUpdate ? 'updated' : 'created', total,
+        updated: isUpdate, notice_id: notice.id, notice_issue_date: notice.issue_date || null, notice,
+        message: isUpdate
+          ? `⟳ 已更新既有公告（不新增筆數）：${label}（公告日期 ${dateLabel}，${nBullets} 條重點）`
+          : `✅ 已新增：${label}（公告日期 ${dateLabel}，${nBullets} 條重點）`,
+      }), { headers: jsonHeaders });
     }
 
     // ── Notices: POST /api/notices/dedup (去重現有公告) ─────────────
@@ -3176,7 +3228,8 @@ async function handleRequest(request, env) {
 
   } catch (err) {
     console.error('Worker error:', err);
-    return new Response(JSON.stringify({ error: err.message }), {
+    const errMsg = String((err && err.message) || err || 'Unknown error');
+    return new Response(JSON.stringify({ ok: false, error: errMsg, message: `❌ 伺服器錯誤：${errMsg}` }), {
       status: 500, headers: { ...headers, 'Content-Type': 'application/json' }
     });
   }
