@@ -82,6 +82,126 @@ function _isDuplicate(newNotice, existing) {
   return existing.some(e => _noticeFingerprint(e) === fp);
 }
 
+// ── Notice import（備忘錄公告，已由代理讀過原文並結構化；不呼叫任何 AI）──────
+
+const _IMPORT_NOTICE_KEYS = ['title', 'issue_date', 'effective_date', 'source', 'source_tag', 'tags',
+  'aircraft', 'urgency', 'summary', 'action_required', 'raw_text'];
+const _IMPORT_MANAGED_KEYS = ['id', 'created_at', 'updated_at', 'source_type', '_source'];
+const _IMPORT_PROVENANCE_KEYS = ['kind', 'note_id', 'item_id', 'sha256', 'filename'];
+const _IMPORT_SOURCE_TAGS = ['fleet_notice', 'message', 'email'];
+const _IMPORT_TAGS = ['ops', 'safety', 'manual_update', 'admin', 'app_notice'];
+const _IMPORT_AIRCRAFT = ['a321', 'a330', 'a350', 'all'];
+const _IMPORT_URGENCY = ['normal', 'important', 'urgent'];
+
+function _isPlainObject(v) {
+  return v !== null && typeof v === 'object' && !Array.isArray(v);
+}
+
+// 只接受實際存在的日曆日（2026-02-30 → false）
+function _isRealDate(s) {
+  if (typeof s !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(s)) return false;
+  const [y, m, d] = s.split('-').map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  return dt.getUTCFullYear() === y && dt.getUTCMonth() === m - 1 && dt.getUTCDate() === d;
+}
+
+// 驗證匯入請求。回傳 { notice, provenance } 或 { error }（人類可讀訊息）。
+function _validateNoticeImport(body) {
+  if (!_isPlainObject(body)) return { error: '請求內容必須是 JSON 物件' };
+  const extraTop = Object.keys(body).filter(k => k !== 'notice' && k !== 'provenance');
+  if (extraTop.length) return { error: `不接受的頂層欄位：${extraTop.join(', ')}` };
+  const n = body.notice, p = body.provenance;
+  if (!_isPlainObject(n)) return { error: 'notice 必須是物件' };
+  if (!_isPlainObject(p)) return { error: 'provenance 必須是物件' };
+
+  const managed = Object.keys(n).filter(k => _IMPORT_MANAGED_KEYS.includes(k));
+  if (managed.length) return { error: `notice 不可指定管理欄位：${managed.join(', ')}` };
+  const unknown = Object.keys(n).filter(k => !_IMPORT_NOTICE_KEYS.includes(k));
+  if (unknown.length) return { error: `notice 含未知欄位：${unknown.join(', ')}` };
+
+  const str = (v, field, max) => {
+    if (typeof v !== 'string' || !v.trim()) return `${field} 必須是非空字串`;
+    if (v.trim().length > max) return `${field} 過長（上限 ${max} 字）`;
+    return null;
+  };
+  let err = str(n.title, 'title', 200) || str(n.source, 'source', 100);
+  if (err) return { error: err };
+
+  for (const f of ['issue_date', 'effective_date']) {
+    const v = n[f] === undefined ? null : n[f];
+    if (v !== null && !_isRealDate(v)) return { error: `${f} 必須是實際存在的 YYYY-MM-DD 日期或 null` };
+  }
+  if (!_IMPORT_SOURCE_TAGS.includes(n.source_tag)) {
+    return { error: `source_tag 只接受 ${_IMPORT_SOURCE_TAGS.join('/')}` };
+  }
+  if (!_IMPORT_URGENCY.includes(n.urgency)) return { error: `urgency 只接受 ${_IMPORT_URGENCY.join('/')}` };
+
+  if (!Array.isArray(n.tags) || !n.tags.length || n.tags.some(t => !_IMPORT_TAGS.includes(t))) {
+    return { error: `tags 必須是非空陣列，值只接受 ${_IMPORT_TAGS.join('/')}` };
+  }
+  if (!Array.isArray(n.aircraft) || !n.aircraft.length ||
+      n.aircraft.some(a => typeof a !== 'string' || !_IMPORT_AIRCRAFT.includes(a.toLowerCase()))) {
+    return { error: `aircraft 必須是非空陣列，值只接受 ${_IMPORT_AIRCRAFT.join('/')}` };
+  }
+
+  if (!Array.isArray(n.summary) || n.summary.length < 1 || n.summary.length > 7) {
+    return { error: 'summary 必須是 1–7 條的陣列' };
+  }
+  for (const item of n.summary) {
+    err = str(item, 'summary 每一條', 500);
+    if (err) return { error: err };
+  }
+  const keys = n.summary.map(item => item.normalize('NFKC').replace(/\s+/g, '').toLowerCase());
+  if (new Set(keys).size !== keys.length) return { error: 'summary 不可有重複內容' };
+
+  const action = n.action_required === undefined ? null : n.action_required;
+  if (action !== null && (typeof action !== 'string' || action.length > 500)) {
+    return { error: 'action_required 必須是字串（≤500 字）或 null' };
+  }
+  if (n.raw_text !== undefined && (typeof n.raw_text !== 'string' || n.raw_text.length > 3000)) {
+    return { error: 'raw_text 必須是字串（≤3000 字）' };
+  }
+
+  const extraProv = Object.keys(p).filter(k => !_IMPORT_PROVENANCE_KEYS.includes(k));
+  if (extraProv.length) return { error: `provenance 含未知欄位：${extraProv.join(', ')}` };
+  if (p.kind !== 'apple_notes') return { error: 'provenance.kind 必須是 apple_notes' };
+  for (const f of ['note_id', 'item_id']) {
+    err = str(p[f], `provenance.${f}`, 200);
+    if (err) return { error: err };
+  }
+  err = str(p.filename, 'provenance.filename', 255);
+  if (err) return { error: err };
+  if (/[\/\\\0]/.test(p.filename)) return { error: 'provenance.filename 不可包含路徑分隔符或 NUL' };
+  if (typeof p.sha256 !== 'string' || !/^[0-9a-f]{64}$/.test(p.sha256)) {
+    return { error: 'provenance.sha256 必須是 64 個小寫十六進位字元' };
+  }
+
+  const ext = (p.filename.match(/\.([A-Za-z0-9]+)$/) || [])[1]?.toLowerCase() || '';
+  const sourceType = ext === 'pdf' ? 'pdf'
+    : ['png', 'jpg', 'jpeg', 'gif', 'bmp', 'heic', 'webp'].includes(ext) ? 'image'
+    : 'text';
+
+  const notice = {
+    source_type:    sourceType,
+    title:          n.title.trim(),
+    issue_date:     n.issue_date ?? null,
+    effective_date: n.effective_date ?? null,
+    source:         n.source.trim(),
+    source_tag:     n.source_tag,
+    tags:           [...new Set(n.tags)],
+    aircraft:       [...new Set(n.aircraft.map(a => a.toLowerCase()))],
+    urgency:        n.urgency,
+    summary:        n.summary.map(s => s.trim()),
+    action_required: action,
+    raw_text:       n.raw_text ?? '',
+  };
+  const provenance = {
+    kind: p.kind, note_id: p.note_id.trim(), item_id: p.item_id.trim(),
+    sha256: p.sha256, filename: p.filename,
+  };
+  return { notice, provenance };
+}
+
 // 將使用者在捷徑選單選的來源（Teams/Outlook/Line/FN 公告/其他…）映射成合法 source_tag。
 // 用關鍵字「包含」比對而非精確比對，容忍中文變體標籤；
 // 「其他/分享」或無法判斷時回傳 null，讓 Gemini 自行判斷。
@@ -2444,6 +2564,94 @@ async function handleRequest(request, env) {
           headers: { ...headers, 'Content-Type': 'application/json' },
         });
       }
+    }
+
+    // ── Notices: POST /api/notices/import ─────────────────────────────
+    // 代理已讀過原文並結構化；此處只驗證與寫入，不呼叫 AI 或任何外部 fetch。
+    if (url.pathname === '/api/notices/import' && request.method === 'POST') {
+      const jsonHeaders = { ...headers, 'Content-Type': 'application/json' };
+      const authVal = (request.headers.get('Authorization') || '').replace(/^Bearer\s*/i, '').trim() || (url.searchParams.get('token') || '');
+      if (!env.UPLOAD_TOKEN || authVal !== env.UPLOAD_TOKEN) {
+        return new Response(JSON.stringify({ ok: false, saved: false, error: 'Unauthorized', message: '❌ 憑證錯誤：UPLOAD_TOKEN 不符，公告未匯入' }), {
+          status: 401, headers: jsonHeaders,
+        });
+      }
+
+      let body;
+      try { body = JSON.parse(await request.text()); }
+      catch {
+        return new Response(JSON.stringify({ ok: false, saved: false, error: 'Invalid JSON', message: '❌ 匯入失敗：請求內容不是有效的 JSON，公告未儲存' }), {
+          status: 400, headers: jsonHeaders,
+        });
+      }
+      const checked = _validateNoticeImport(body);
+      if (checked.error) {
+        return new Response(JSON.stringify({ ok: false, saved: false, error: checked.error, message: `❌ 匯入失敗：${checked.error}，公告未儲存` }), {
+          status: 400, headers: jsonHeaders,
+        });
+      }
+      const { notice, provenance } = checked;
+      const label = notice.title;
+
+      if (url.searchParams.get('dry_run') === 'true') {
+        return new Response(JSON.stringify({
+          ok: true, saved: false, dry_run: true, notice_issue_date: notice.issue_date,
+          preview: { ...notice, _source: provenance },
+          message: `🔍 僅驗證預覽，未儲存（不代表已發布）：${label}`,
+        }), { headers: jsonHeaders });
+      }
+
+      if (!env.NOTICES_KV) {
+        return new Response(JSON.stringify({
+          ok: false, saved: false, error: 'NOTICES_KV not bound',
+          message: '❌ 儲存失敗：伺服器未綁定 NOTICES_KV，公告未儲存',
+        }), { status: 503, headers: jsonHeaders });
+      }
+
+      let action, saved, total;
+      try {
+        const list = await _noticesGet(env);
+        const same = list.find(e => e && e._source && e._source.sha256 === provenance.sha256);
+        if (same) {
+          // 同一來源 hash 重送：不新增、不改寫
+          saved = same;
+          action = 'duplicate';
+          total = list.length;
+        } else {
+          const entry = { id: generateUUID(), created_at: new Date().toISOString(), ...notice, _source: provenance };
+          const fp = _noticeFingerprint(entry);
+          const idx = list.findIndex(e => e && _noticeFingerprint(e) === fp);
+          if (idx !== -1) {
+            entry.id = list[idx].id;
+            entry.created_at = list[idx].created_at;
+            entry.updated_at = new Date().toISOString();
+            list[idx] = entry;
+            action = 'updated';
+          } else {
+            list.unshift(entry);
+            action = 'created';
+          }
+          const finalList = list.slice(0, 200);
+          total = finalList.length;
+          await _noticesSet(env, finalList);
+          saved = entry;
+        }
+      } catch (e) {
+        return new Response(JSON.stringify({
+          ok: false, saved: false, error: e.message, message: `❌ 儲存失敗：${e.message}，公告未儲存`,
+        }), { status: 500, headers: jsonHeaders });
+      }
+
+      const dateLabel = saved.issue_date || '未知';
+      return new Response(JSON.stringify({
+        ok: true, saved: true, action, total, notice_id: saved.id,
+        notice_issue_date: saved.issue_date || null,
+        message: action === 'duplicate'
+          ? `⚠️ 此來源已匯入過，未新增或改寫：${saved.title || label}（公告日期 ${dateLabel}）`
+          : action === 'updated'
+            ? `⟳ 已更新既有公告（不新增筆數）：${label}（公告日期 ${dateLabel}）`
+            : `✅ 已新增：${label}（公告日期 ${dateLabel}）`,
+      }), { headers: jsonHeaders });
     }
 
     // ── Notices: POST /api/notices/upload ─────────────────────────────

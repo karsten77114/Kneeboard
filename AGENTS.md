@@ -32,3 +32,9 @@ Kneeboard repo 的 agent 入口，可在獨立 clone（含雲端）直接使用�
 - 雲端若沒有 wrapper 或 `ai_workers` 之類工具，直接由當前 agent 完成，不要因此卡住。
 - AGY 僅用於跨模型第二意見或使用者明確指定，不用於一般平行掃描。
 - 審查者實際跑 `npm run check` 與 `npm test`；不要把未驗證的事稱為已驗證。
+
+## SJX Bulletin 公告收件
+
+- 使用者說「處理公告」時，來源是 iCloud 備忘錄 `✈️ Pilot / SJX Bulletin`，不是新資料夾。
+- 先讀 `../../../000_Agent/skills/kneeboard-notice-inbox/SKILL.md`；獨立 clone 沒有此檔時，讀 `docs/NOTICE_IMPORT.md`。
+- 直接由目前代理讀原文、整理，使用 `scripts/import_notice.py` 上架，不呼叫 Gemini API。只有讀回核對成功，才透過原生備忘錄介面移除對應已處理內容；保留 SJX Bulletin 備忘錄本身及標題。
