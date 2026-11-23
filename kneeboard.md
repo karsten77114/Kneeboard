@@ -233,7 +233,7 @@ CrewSync 是功能最完整的 STARLUX 飛行員工具，比簡報箱更深入�
 - Worker `ELB_BASE` = `https://sjx.ultramain.systems`；`ELB_WS` 由 `ELB_BASE` 衍生為 `${ELB_BASE}/elb/session`（單一 host，Worker 以 `https://` 發 Upgrade 請求）
 - 前端 URL 的 `#/dashboard/fleet` 是 SPA hash route，**不是** WebSocket path，也不會送到伺服器
 - 路徑依新站實際前端 `app.5a78a15f.js` 核對：WebSocket 為 `/elb/session`；前端另讀 `/elb/api/users/getBearerToken`，有 token 時發送 `authorization` 通知。舊 `/logbook-api/session` 在新站回 404。
-- 2026-11-23 未登入探測：`/elb/` 與 Bearer token 端點回登入頁，原有匿名首頁 cookie 尚不能證明可查詢；目前未設定新站 ELB 專用授權。登入／資料查詢以實際 Worker 測試結果為準，不以首頁 HTTP 200 或 mock 測試當作可用。
+- 2026-11-23 正式 Worker 實測：`POST /auth/elb` 回 401，訊息為「ELB 新站要求登入授權，目前無法建立自動查詢連線」；新站 `/elb/` 與 Bearer token 端點亦回登入頁。網址與 WebSocket 路徑已遷移，但自動 MEL 查詢尚未恢復；需先取得新站有效登入授權，再依其 Bearer／authorization 流程完成整合驗收。現有共享設定沒有 ELB 專用帳密，不可改用 LIDO 帳密猜測登入。
 
 **功能**：
 - 機隊清單（A321 / A330 / A350）
