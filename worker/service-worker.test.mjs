@@ -44,10 +44,10 @@ test('workers.dev network rejection 有快取時回快取', async () => {
   assert.equal(res, cached);
 });
 
-test('SW CACHE 版本與 utils APP_VERSION 同步為 v75', () => {
+test('SW CACHE 版本與 utils APP_VERSION 同步為 v76', () => {
   const cache = SRC.match(/const CACHE = 'kneeboard-(v\d+)'/)[1];
   const app = UTILS.match(/APP_VERSION = '(v\d+)'/)[1];
-  assert.equal(cache, 'v75');
+  assert.equal(cache, 'v76');
   assert.equal(app, cache);
 });
 
@@ -104,10 +104,10 @@ test('install 用 cache:reload 的 Request 預快取', async () => {
 
 test('activate 只清 kneeboard- 前綴的舊 cache，不動其他 app', async () => {
   const { handlers, deleted, state } = loadFullSw({
-    keys: ['kneeboard-v73', 'kneeboard-v74', 'kneeboard-v75', 'other-app-v1', 'logbook-cache'],
+    keys: ['kneeboard-v74', 'kneeboard-v75', 'kneeboard-v76', 'other-app-v1', 'logbook-cache'],
   });
   await runExtendable(handlers.activate);
-  assert.deepEqual(deleted.sort(), ['kneeboard-v73', 'kneeboard-v74']);
+  assert.deepEqual(deleted.sort(), ['kneeboard-v74', 'kneeboard-v75']);
   assert.equal(state.claimed, true);
 });
 
@@ -117,7 +117,7 @@ test('GET_VERSION message 經 MessageChannel port 回 cache 版本', () => {
   handlers.message({ data: { type: 'GET_VERSION' }, ports: [{ postMessage: m => sent.push(m) }] });
   assert.equal(sent.length, 1);
   assert.equal(sent[0].type, 'VERSION');
-  assert.equal(sent[0].version, 'kneeboard-v75');
+  assert.equal(sent[0].version, 'kneeboard-v76');
   // 無 port 或其他訊息不回覆、不丟錯
   handlers.message({ data: { type: 'GET_VERSION' }, ports: [] });
   handlers.message({ data: { type: 'OTHER' }, ports: [{ postMessage: m => sent.push(m) }] });

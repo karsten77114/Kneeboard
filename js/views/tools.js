@@ -1255,7 +1255,7 @@ function _renderLinks(panel) {
     { group: '公司系統', items: [
       { label: 'SJX Pilot Space',        url: 'https://pilotstarspace.starlux-airlines.com/#/login' },
       { label: 'LIDO Flight',            url: 'https://sjx.lido.aero/lido/las/login.jsp' },
-      { label: 'SJX ELB Fleet',          url: 'https://elb.starlux-airlines.com/elb/' },
+      { label: 'SJX ELB Fleet',          url: 'https://sjx.ultramain.systems/elb/#/dashboard/fleet' },
       { label: 'WNI Flight Plan Editor', url: 'https://flight-plan-editor.weathernews.com/flight_plan_editor/#login' },
       { label: 'iQSMS',                  url: 'https://starluxairlines.asqs.net' },
     ]},

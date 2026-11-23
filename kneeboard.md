@@ -228,6 +228,13 @@ CrewSync 是功能最完整的 STARLUX 飛行員工具，比簡報箱更深入�
 ### 模組 2：飛機狀態（ELB）
 **資料來源**：ELB WebSocket（via Cloudflare Worker proxy）
 
+**ELB 位址（2026-11-23 起）**：
+- 前端（外部連結用）：`https://sjx.ultramain.systems/elb/#/dashboard/fleet`
+- Worker `ELB_BASE` = `https://sjx.ultramain.systems`；`ELB_WS` 由 `ELB_BASE` 衍生為 `${ELB_BASE}/elb/session`（單一 host，Worker 以 `https://` 發 Upgrade 請求）
+- 前端 URL 的 `#/dashboard/fleet` 是 SPA hash route，**不是** WebSocket path，也不會送到伺服器
+- 路徑依新站實際前端 `app.5a78a15f.js` 核對：WebSocket 為 `/elb/session`；前端另讀 `/elb/api/users/getBearerToken`，有 token 時發送 `authorization` 通知。舊 `/logbook-api/session` 在新站回 404。
+- 2026-11-23 未登入探測：`/elb/` 與 Bearer token 端點回登入頁，原有匿名首頁 cookie 尚不能證明可查詢；目前未設定新站 ELB 專用授權。登入／資料查詢以實際 Worker 測試結果為準，不以首頁 HTTP 200 或 mock 測試當作可用。
+
 **功能**：
 - 機隊清單（A321 / A330 / A350）
 - 今日飛機的 MEL Deferred Defects
@@ -381,7 +388,7 @@ Log ATP 2 支援匯出 CSV / EASA 格式，導入後一次性更新，之後每�
 ### 模組 8：快速入口（Links Hub）
 - SJX Pilot Space
 - LIDO Flight（直接連結，若未登入則跳登入）
-- SJX ELB Fleet
+- SJX ELB Fleet（`https://sjx.ultramain.systems/elb/#/dashboard/fleet`）
 - Weathernews Flight Plan Editor
 - Tono2 日本航空天氣
 - GPS 干擾區域查詢

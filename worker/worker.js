@@ -605,8 +605,9 @@ function _normalizeAdbx(flight, requestedAirport) {
 
 // ── ELB Functions ──────────────────────────────────────────────────
 
-const ELB_BASE  = 'https://elb.starlux-airlines.com';
-const ELB_WS    = 'https://elb.starlux-airlines.com/logbook-api/session';  // https:// for CF Workers WS upgrade
+const ELB_BASE  = 'https://sjx.ultramain.systems';
+// https:// for CF Workers WS upgrade；單一 host。前端 hash route（/elb/#/dashboard/fleet）不是 WS path。
+const ELB_WS    = `${ELB_BASE}/elb/session`;
 const ELB_UA    = 'Mozilla/5.0 (iPad; CPU OS 17_0 like Mac OS X) AppleWebKit/605.1.15';
 
 function collectSetCookies(resp) {
@@ -635,7 +636,12 @@ async function elbHttpLogin() {
       'User-Agent': ELB_UA,
     },
   });
-  if (wsResp.status !== 101) throw new Error(`ELB WebSocket 驗證失敗 (HTTP ${wsResp.status})`);
+  if (wsResp.status !== 101) {
+    if (wsResp.status === 200 && (wsResp.headers.get('content-type') || '').includes('text/html')) {
+      throw new Error('ELB 新站要求登入授權，目前無法建立自動查詢連線');
+    }
+    throw new Error(`ELB WebSocket 驗證失敗 (HTTP ${wsResp.status})`);
+  }
   wsResp.webSocket?.accept();
   wsResp.webSocket?.close(1000, 'auth validation');
   return sessionCookie;
