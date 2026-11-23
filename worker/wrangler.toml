@@ -7,7 +7,9 @@ compatibility_date = "2024-01-01"
 #   GEMINI_API_KEY          — Gemini AI
 #   UPLOAD_TOKEN            — iOS Shortcut 上傳憑證
 #   NOTICE_IMPORT_TOKEN     — 雲端橋接專用，只允許結構化公告匯入
-# ELB 新站（2026-11-23）要求登入授權；舊匿名首頁 cookie 方式已失效，待新站授權整合
+#   ELB_USER, ELB_PASS      — ELB（sjx.ultramain.systems）登入，沿用舊 ELB 帳密；現為必填
+#                             以 `wrangler secret put ELB_USER` / `ELB_PASS` 設定，勿寫入此檔或任何 repo 檔案
+# ELB 新站（2026-11-23）要求登入授權；/auth/elb 以 ELB_USER / ELB_PASS 表單登入，尚待實際帳密與線上驗證
 
 [[kv_namespaces]]
 binding = "NOTICES_KV"

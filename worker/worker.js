@@ -610,77 +610,222 @@ const ELB_BASE  = 'https://sjx.ultramain.systems';
 const ELB_WS    = `${ELB_BASE}/elb/session`;
 const ELB_UA    = 'Mozilla/5.0 (iPad; CPU OS 17_0 like Mac OS X) AppleWebKit/605.1.15';
 
-function collectSetCookies(resp) {
-  // Cloudflare Workers expose repeated headers via getAll() or via the raw Headers
-  const raw = resp.headers.get('set-cookie') || '';
-  // Extract all cookie name=value pairs (before first semicolon) joined into one Cookie string
-  const pieces = raw.split(/,(?=[^ ].*?=)/);   // rough split on comma-separated Set-Cookie
-  return pieces.map(p => p.split(';')[0].trim()).filter(Boolean).join('; ');
+// ELB 錯誤訊息一律為固定的通用字串，不得夾帶帳密 / bearer / cookie / 上游 body。
+// 只有 ElbError 的 message 會回傳給呼叫端；其他例外一律轉成通用訊息。
+class ElbError extends Error {
+  constructor(message, status = 401) { super(message); this.name = 'ElbError'; this.status = status; }
 }
+const ELB_GENERIC_ERROR = 'ELB 連線失敗，請稍後重試';
+const ELB_REAUTH_ERROR = 'ELB session 已失效，請重新登入 ELB';
+const ELB_VALIDATION_AIRCRAFT = 'B-58201';
 
-async function elbHttpLogin() {
-  // ELB 的 SPA 首頁 cookie（JSESSIONID）本身即可通過 WebSocket 驗證，
-  // 無需帳號密碼。直接取首頁 cookie → 驗證 WebSocket。
-  const pageResp = await fetch(`${ELB_BASE}/elb/`, {
-    headers: { 'User-Agent': ELB_UA, 'Accept': 'text/html,*/*' },
-    redirect: 'follow',
-  });
-  const sessionCookie = collectSetCookies(pageResp);
-  if (!sessionCookie) throw new Error('ELB 無法取得 session cookie');
-
-  const wsResp = await fetch(ELB_WS, {
-    headers: {
-      Upgrade: 'websocket',
-      Connection: 'Upgrade',
-      Cookie: sessionCookie,
-      'User-Agent': ELB_UA,
-    },
-  });
-  if (wsResp.status !== 101) {
-    if (wsResp.status === 200 && (wsResp.headers.get('content-type') || '').includes('text/html')) {
-      throw new Error('ELB 新站要求登入授權，目前無法建立自動查詢連線');
-    }
-    throw new Error(`ELB WebSocket 驗證失敗 (HTTP ${wsResp.status})`);
+// 取出所有 Set-Cookie 原始字串。優先 getSetCookie()（Workers / Node 20+），
+// 其次 getAll()（舊 Workers），最後才用單一 header 並避開 Expires 內的逗號切分。
+function elbReadSetCookies(resp) {
+  const h = resp.headers;
+  if (typeof h.getSetCookie === 'function') {
+    const list = h.getSetCookie();
+    if (list.length) return list;
   }
-  wsResp.webSocket?.accept();
-  wsResp.webSocket?.close(1000, 'auth validation');
-  return sessionCookie;
+  if (typeof h.getAll === 'function') {
+    const list = h.getAll('set-cookie');
+    if (list && list.length) return list;
+  }
+  const raw = h.get('set-cookie');
+  if (!raw) return [];
+  // 只在「逗號後接 name=」時切開；Expires=Wed, 21 Oct ... 的逗號後面是日期，不會被切
+  return raw.split(/,(?=\s*[^;,=\s]+=)/).map(s => s.trim()).filter(Boolean);
 }
 
-async function elbWSQuery(sessionCookie, funcName, content) {
-  const resp = await fetch(ELB_WS, {
+// 依 cookie 名稱合併進 jar（Map）；同名後者覆蓋（session rotation），其他 cookie 保留。
+function elbMergeCookies(jar, resp) {
+  for (const sc of elbReadSetCookies(resp)) {
+    const [pair, ...attrs] = sc.split(';');
+    const eq = pair.indexOf('=');
+    if (eq <= 0) continue;
+    const name = pair.slice(0, eq).trim();
+    const value = pair.slice(eq + 1).trim();
+    const maxAge = attrs.map(a => a.trim().match(/^max-age=(-?\d+)$/i)).find(Boolean);
+    if (maxAge && Number(maxAge[1]) <= 0) { jar.delete(name); continue; }
+    jar.set(name, value);
+  }
+  return jar;
+}
+
+function elbCookieHeader(jar) {
+  return [...jar].map(([k, v]) => `${k}=${v}`).join('; ');
+}
+
+function collectSetCookies(resp) {
+  return elbCookieHeader(elbMergeCookies(new Map(), resp));
+}
+
+// 攜帶憑證 / session 的請求：不跟隨 redirect，網路錯誤轉為通用訊息
+async function elbFetch(url, init = {}) {
+  try {
+    return await fetch(url, { ...init, redirect: 'manual' });
+  } catch {
+    throw new ElbError(ELB_GENERIC_ERROR);
+  }
+}
+
+const elbIsOk = resp => resp.status >= 200 && resp.status < 300 && resp.type !== 'opaqueredirect';
+
+function elbValidateSession(session) {
+  const nonEmpty = v => typeof v === 'string' && v.trim().length > 0;
+  return session !== null && typeof session === 'object'
+    && session.origin === ELB_BASE
+    && nonEmpty(session.sessionCookie)
+    && nonEmpty(session.bearer);
+}
+
+// 以 ELB_USER / ELB_PASS（Worker secrets）登入新 host，回傳 { sessionCookie, bearer, origin }。
+async function elbHttpLogin(env) {
+  const user = env && env.ELB_USER;
+  const pass = env && env.ELB_PASS;
+  if (typeof user !== 'string' || !user || typeof pass !== 'string' || !pass) {
+    throw new ElbError('ELB_USER / ELB_PASS 尚未設定於 Worker secrets', 500);
+  }
+
+  const jar = new Map();
+
+  // 1. 首頁取得初始 JSESSIONID（Path=/elb）
+  const pageResp = await elbFetch(`${ELB_BASE}/elb/`, {
+    headers: { 'User-Agent': ELB_UA, 'Accept': 'text/html,*/*' },
+  });
+  if (!elbIsOk(pageResp)) throw new ElbError('ELB 登入頁取得失敗');
+  elbMergeCookies(jar, pageResp);
+  if (!jar.size) throw new ElbError('ELB 無法取得 session cookie');
+
+  // 2. 表單登入（x-www-form-urlencoded）
+  const loginResp = await elbFetch(`${ELB_BASE}/elb/auth`, {
+    method: 'POST',
     headers: {
-      Upgrade: 'websocket',
-      Connection: 'Upgrade',
-      Cookie: sessionCookie,
       'User-Agent': ELB_UA,
+      'Content-Type': 'application/x-www-form-urlencoded',
+      'Origin': ELB_BASE,
+      'Referer': `${ELB_BASE}/elb/`,
+      'Cookie': elbCookieHeader(jar),
+    },
+    body: new URLSearchParams({ j_username: user, j_password: pass }).toString(),
+  });
+  if (!elbIsOk(loginResp)) throw new ElbError('ELB 登入失敗，請確認帳密設定');
+  elbMergeCookies(jar, loginResp);   // 登入後 session 可能 rotate
+
+  // 3. 取 bearer token：{ token, expires }；204 / HTML / 格式錯誤皆視為未登入
+  const tokenResp = await elbFetch(`${ELB_BASE}/elb/api/users/getBearerToken`, {
+    headers: {
+      'User-Agent': ELB_UA,
+      'Accept': 'application/json',
+      'Cookie': elbCookieHeader(jar),
     },
   });
-  if (resp.status !== 101) {
-    throw new Error(`ELB WebSocket 連線失敗 (HTTP ${resp.status})，請重新登入 ELB`);
+  if (!elbIsOk(tokenResp) || tokenResp.status === 204) throw new ElbError('ELB 登入失敗，無法取得授權 token');
+  elbMergeCookies(jar, tokenResp);
+  if ((tokenResp.headers.get('content-type') || '').toLowerCase().includes('html')) {
+    throw new ElbError('ELB 登入失敗，無法取得授權 token');
+  }
+  let bearer;
+  try {
+    const data = JSON.parse(await tokenResp.text());
+    bearer = data && typeof data === 'object' ? data.token : null;
+  } catch { bearer = null; }
+  if (typeof bearer !== 'string' || !/^[A-Za-z0-9._~+\/=-]+$/.test(bearer)) {
+    throw new ElbError('ELB 登入失敗，授權 token 格式不正確');
+  }
+
+  const session = { sessionCookie: elbCookieHeader(jar), bearer, origin: ELB_BASE };
+
+  // 4. 以唯讀查詢驗證：WebSocket 101 不代表已授權，必須拿到非 null 物件
+  let state;
+  try {
+    state = await elbWSQuery(session, 'getAircraftState', { id: ELB_VALIDATION_AIRCRAFT });
+  } catch (e) {
+    throw new ElbError(e instanceof ElbError ? e.message : ELB_GENERIC_ERROR);
+  }
+  const aircraft = state?.aircraftIdentifier ? state : (state?.data ?? state?.aircraft);
+  if (aircraft?.aircraftIdentifier !== ELB_VALIDATION_AIRCRAFT) {
+    throw new ElbError('ELB WebSocket 驗證失敗，查詢無有效回應');
+  }
+
+  return session;
+}
+
+async function elbWSQuery(session, funcName, content) {
+  if (!elbValidateSession(session)) throw new ElbError(ELB_REAUTH_ERROR);
+
+  let resp;
+  try {
+    resp = await fetch(ELB_WS, {
+      headers: {
+        Upgrade: 'websocket',
+        Connection: 'Upgrade',
+        Cookie: session.sessionCookie,
+        'User-Agent': ELB_UA,
+      },
+      redirect: 'manual',
+    });
+  } catch {
+    throw new ElbError(ELB_GENERIC_ERROR, 502);
+  }
+  if (resp.status !== 101 || !resp.webSocket) {
+    if ([401, 403].includes(resp.status) || (resp.status === 200 && (resp.headers.get('content-type') || '').includes('text/html'))) {
+      throw new ElbError(ELB_REAUTH_ERROR, 401);
+    }
+    throw new ElbError(`ELB WebSocket 連線失敗 (HTTP ${resp.status})`, 502);
   }
   const ws = resp.webSocket;
-  ws.accept();
 
   return new Promise((resolve, reject) => {
     const reqId = 1;
-    const timer = setTimeout(() => { ws.close(); reject(new Error('ELB 請求逾時')); }, 12000);
+    let done = false;
+    let timer = null;
+    let authSent = false;
+    let configSeen = false;
+    let requestSent = false;
+    const finish = (fn, value) => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      try { ws.close(1000, 'done'); } catch {}
+      fn(value);
+    };
+    timer = setTimeout(() => finish(reject, new ElbError('ELB 請求逾時', 502)), 12000);
 
+    const sendRequest = () => {
+      if (done || !authSent || !configSeen || requestSent) return;
+      requestSent = true;
+      try { ws.send(JSON.stringify({ id: reqId, type: 'req', func: funcName, content })); }
+      catch { finish(reject, new ElbError(ELB_GENERIC_ERROR, 502)); }
+    };
+
+    // 先註冊 listener，再 accept
     ws.addEventListener('message', evt => {
+      if (done) return;
       let json;
       try { json = JSON.parse(evt.data); } catch { return; }
+      if (!json || typeof json !== 'object') return;
       if (json.type === 'not' && json.func === 'localApplicationConfiguration') {
-        ws.send(JSON.stringify({ id: reqId, type: 'req', func: funcName, content }));
+        configSeen = true;
+        sendRequest();
       } else if (json.type === 'res' && json.id === reqId) {
-        clearTimeout(timer); ws.close();
-        resolve(json.content !== undefined ? json.content : json);
+        finish(resolve, json.content !== undefined ? json.content : json);
       } else if (json.type === 'fail' && json.id === reqId) {
-        clearTimeout(timer); ws.close();
-        reject(new Error(json.content?.message || '查詢失敗'));
+        finish(reject, new ElbError('ELB 查詢失敗', 502));
       }
     });
-    ws.addEventListener('error', () => { clearTimeout(timer); reject(new Error('WebSocket 錯誤')); });
-    ws.addEventListener('close', () => { clearTimeout(timer); reject(new Error('連線中斷')); });
+    ws.addEventListener('error', () => finish(reject, new ElbError('ELB WebSocket 錯誤', 502)));
+    ws.addEventListener('close', () => finish(reject, new ElbError('ELB 連線中斷', 502)));
+
+    try {
+      ws.accept();
+      // 與上游 app 相同：連線後先送 bearer 授權通知，之後才會有 localApplicationConfiguration / req
+      ws.send(JSON.stringify({ type: 'not', func: 'authorization', content: { bearer: session.bearer } }));
+      authSent = true;
+      sendRequest();
+    } catch {
+      finish(reject, new ElbError(ELB_GENERIC_ERROR, 502));
+    }
   });
 }
 
@@ -2347,24 +2492,27 @@ async function handleRequest(request, env) {
 
     // ── ELB ──────────────────────────────────────────────────────────
 
-    // POST /auth/elb — 無需帳密，直接取 ELB 首頁 session cookie
+    // POST /auth/elb — 以 Worker secrets（ELB_USER / ELB_PASS）登入 ELB 新 host；不接受呼叫端帳密
     if (url.pathname === '/auth/elb' && request.method === 'POST') {
       try {
-        const sessionCookie = await elbHttpLogin();
-        const token = btoa(JSON.stringify({ sessionCookie, ts: Date.now() }));
+        const session = await elbHttpLogin(env);
+        const token = btoa(JSON.stringify({ ...session, ts: Date.now() }));
         return new Response(JSON.stringify({ success: true, sessionToken: token }), {
           headers: { ...headers, 'Content-Type': 'application/json' }
         });
       } catch (e) {
-        return new Response(JSON.stringify({ error: e.message }), {
-          status: 401, headers: { ...headers, 'Content-Type': 'application/json' }
+        const known = e instanceof ElbError;
+        return new Response(JSON.stringify({ error: known ? e.message : ELB_GENERIC_ERROR }), {
+          status: known ? e.status : 401, headers: { ...headers, 'Content-Type': 'application/json' }
         });
       }
     }
 
     // POST /api/elb/query — 用 session token 向 ELB WS 查詢
     if (url.pathname === '/api/elb/query' && request.method === 'POST') {
-      const { sessionToken, func: funcName, content } = await request.json();
+      let reqBody;
+      try { reqBody = await request.json(); } catch { reqBody = null; }
+      const { sessionToken, func: funcName, content } = reqBody && typeof reqBody === 'object' ? reqBody : {};
       if (!sessionToken || !funcName) {
         return new Response(JSON.stringify({ error: 'Missing sessionToken or func' }), {
           status: 400, headers: { ...headers, 'Content-Type': 'application/json' }
@@ -2376,14 +2524,21 @@ async function handleRequest(request, env) {
           status: 401, headers: { ...headers, 'Content-Type': 'application/json' }
         });
       }
+      // 舊 token（無 bearer / 非新 host origin）一律 401，讓前端自動重新連線
+      if (!elbValidateSession(session)) {
+        return new Response(JSON.stringify({ error: ELB_REAUTH_ERROR }), {
+          status: 401, headers: { ...headers, 'Content-Type': 'application/json' }
+        });
+      }
       try {
-        const result = await elbWSQuery(session.sessionCookie, funcName, content || {});
+        const result = await elbWSQuery(session, funcName, content || {});
         return new Response(JSON.stringify({ ok: true, data: result }), {
           headers: { ...headers, 'Content-Type': 'application/json' }
         });
       } catch (e) {
-        return new Response(JSON.stringify({ error: e.message }), {
-          status: 502, headers: { ...headers, 'Content-Type': 'application/json' }
+        const known = e instanceof ElbError;
+        return new Response(JSON.stringify({ error: known ? e.message : ELB_GENERIC_ERROR }), {
+          status: known && e.status === 401 ? 401 : 502, headers: { ...headers, 'Content-Type': 'application/json' }
         });
       }
     }

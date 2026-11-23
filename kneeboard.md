@@ -235,6 +235,15 @@ CrewSync 是功能最完整的 STARLUX 飛行員工具，比簡報箱更深入�
 - 路徑依新站實際前端 `app.5a78a15f.js` 核對：WebSocket 為 `/elb/session`；前端另讀 `/elb/api/users/getBearerToken`，有 token 時發送 `authorization` 通知。舊 `/logbook-api/session` 在新站回 404。
 - 2026-11-23 正式 Worker 實測：`POST /auth/elb` 回 401，訊息為「ELB 新站要求登入授權，目前無法建立自動查詢連線」；新站 `/elb/` 與 Bearer token 端點亦回登入頁。網址與 WebSocket 路徑已遷移，但自動 MEL 查詢尚未恢復；需先取得新站有效登入授權，再依其 Bearer／authorization 流程完成整合驗收。現有共享設定沒有 ELB 專用帳密，不可改用 LIDO 帳密猜測登入。
 
+**ELB 新站登入實作（2026-11-23，程式已寫、尚未線上驗證）**：
+- 帳密：沿用舊 ELB 帳密，以 Worker secrets `ELB_USER` / `ELB_PASS` 提供（`wrangler secret put`），現為必填；不使用 LIDO 帳密、不接受呼叫端傳入帳密。缺任一項 → `/auth/elb` 直接失敗（500），且不發出任何外部請求。
+- 流程（依新站實際行為）：`GET /elb/`（取得 `JSESSIONID`，Path=/elb）→ `POST /elb/auth`（`application/x-www-form-urlencoded`，`j_username` / `j_password`）→ `GET /elb/api/users/getBearerToken`（回 `{token, expires}`；204 / HTML / 格式錯誤皆視為失敗）→ WebSocket `/elb/session`，連線後先送 `{type:"not", func:"authorization", content:{bearer}}`，再依 `localApplicationConfiguration` 通知送 req。
+- Cookie 依名稱合併（含 session rotation）；所有帶憑證的請求皆 `redirect: manual`，redirect / 非 2xx 一律視為失敗。
+- 驗證：登入最後以唯讀 `getAircraftState`（B-58201）經 WS 查詢，必須回應正確 aircraftIdentifier 才算成功，不能只靠 101 握手。
+- Session：`{sessionCookie, bearer, origin}`，介面仍是 `/auth/elb` 回傳 base64 `sessionToken`；`/api/elb/query` 會驗證 origin 為新 host 且 cookie / bearer 皆為非空字串，舊 session 回 401 讓前端自動重新連線。公開 API 不變，前端 / SW 無需修改。
+- 錯誤訊息一律為固定通用字串，不含帳密 / bearer / cookie / 上游 body，也不寫入 log。
+- **待辦**：① 等 Karsten 找到舊 ELB 帳密並設定 secrets；② 以真實帳密做線上驗證（確認 `POST /elb/auth` 成功時確實回 2xx 而非 302，並以已核對的 `{id: 機號}` 取得正確 aircraftIdentifier）；③ 驗證通過前不應視為已恢復。
+
 **功能**：
 - 機隊清單（A321 / A330 / A350）
 - 今日飛機的 MEL Deferred Defects
