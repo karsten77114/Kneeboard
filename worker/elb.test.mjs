@@ -206,7 +206,6 @@ for (const [label, make] of [
 }
 
 for (const [label, make] of [
-  ['204 無內容', () => new Response(null, { status: 204 })],
   ['HTML 登入頁（200）', () => new Response('<input name="j_username">', { headers: { 'content-type': 'text/html' } })],
   ['JSON 無 token', () => jsonResponse({ expires: 1 })],
   ['token 為空字串', () => jsonResponse({ token: '' })],
@@ -322,7 +321,7 @@ test('/api/elb/query 舊 session（無 bearer / 無 origin / 舊 host / 空字�
       { sessionCookie: 'JSESSIONID=old' },
       { sessionCookie: SESSION_COOKIE, bearer: FAKE_BEARER },
       { sessionCookie: SESSION_COOKIE, bearer: FAKE_BEARER, origin: 'https://old.example.com' },
-      { sessionCookie: SESSION_COOKIE, bearer: '', origin: ELB_HOST },
+      { sessionCookie: SESSION_COOKIE, bearer: null, origin: ELB_HOST },
       { sessionCookie: '  ', bearer: FAKE_BEARER, origin: ELB_HOST },
       { sessionCookie: 123, bearer: FAKE_BEARER, origin: ELB_HOST },
       { sessionCookie: SESSION_COOKIE, bearer: ['x'], origin: ELB_HOST },
@@ -404,3 +403,25 @@ test('/auth/elb 即時 configuration 通知不會搶在 bearer 授權前送查�
     assert.deepEqual(ws.sent[1].content, { id: 'B-58201' });
   } finally { m.restore(); }
 });
+
+// 上游 getBearerToken 的 204 是支援 cookie session，不代表登入失敗。
+for (const valid of [true, false]) {
+  test(`/auth/elb HTTP 204 cookie session：實際查詢${valid ? '成功才登入' : '無效仍拒絕'}`, async () => {
+    const ws = fakeWsResponse({ syncConfig: true, onReq: msg => ({ type: 'res', id: msg.id, content: valid ? { aircraftIdentifier: 'B-58201' } : null }) });
+    const m = mockFetch(elbHandler(ws, { [ELB_TOKEN]: () => new Response(null, { status: 204 }) }));
+    try {
+      const res = await post('/auth/elb');
+      const result = await res.json();
+      assert.equal(res.status, valid ? 200 : 401);
+      assert.equal(ws.sent.some(msg => msg.func === 'authorization'), false);
+      assert.equal(ws.sent.filter(msg => msg.type === 'req').length, 1);
+      if (valid) {
+        const session = JSON.parse(atob(result.sessionToken));
+        assert.equal(session.bearer, '');
+        const query = await post('/api/elb/query', { sessionToken: result.sessionToken, func: 'getAircraftState', content: { id: 'B-58201' } });
+        assert.equal(query.status, 200);
+        assert.equal((await query.json()).data.aircraftIdentifier, 'B-58201');
+      } else assert.equal(result.sessionToken, undefined);
+    } finally { m.restore(); }
+  });
+}

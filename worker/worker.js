@@ -676,7 +676,8 @@ function elbValidateSession(session) {
   return session !== null && typeof session === 'object'
     && session.origin === ELB_BASE
     && nonEmpty(session.sessionCookie)
-    && nonEmpty(session.bearer);
+    && typeof session.bearer === 'string'
+    && (session.bearer === '' || /^[A-Za-z0-9._~+\/=-]+$/.test(session.bearer));
 }
 
 // 以 ELB_USER / ELB_PASS（Worker secrets）登入新 host，回傳 { sessionCookie, bearer, origin }。
@@ -712,7 +713,7 @@ async function elbHttpLogin(env) {
   if (!elbIsOk(loginResp)) throw new ElbError('ELB 登入失敗，請確認帳密設定');
   elbMergeCookies(jar, loginResp);   // 登入後 session 可能 rotate
 
-  // 3. 取 bearer token：{ token, expires }；204 / HTML / 格式錯誤皆視為未登入
+  // 3. 與上游 app 相同：204 使用 cookie session；200 必須是有效 bearer JSON。
   const tokenResp = await elbFetch(`${ELB_BASE}/elb/api/users/getBearerToken`, {
     headers: {
       'User-Agent': ELB_UA,
@@ -720,18 +721,20 @@ async function elbHttpLogin(env) {
       'Cookie': elbCookieHeader(jar),
     },
   });
-  if (!elbIsOk(tokenResp) || tokenResp.status === 204) throw new ElbError(`ELB 登入失敗，無法取得授權 token（HTTP ${tokenResp.status}）`);
+  if (!elbIsOk(tokenResp)) throw new ElbError(`ELB 登入失敗，無法取得授權 token（HTTP ${tokenResp.status}）`);
   elbMergeCookies(jar, tokenResp);
   if ((tokenResp.headers.get('content-type') || '').toLowerCase().includes('html')) {
     throw new ElbError('ELB 登入失敗，無法取得授權 token');
   }
-  let bearer;
-  try {
-    const data = JSON.parse(await tokenResp.text());
-    bearer = data && typeof data === 'object' ? data.token : null;
-  } catch { bearer = null; }
-  if (typeof bearer !== 'string' || !/^[A-Za-z0-9._~+\/=-]+$/.test(bearer)) {
-    throw new ElbError('ELB 登入失敗，授權 token 格式不正確');
+  let bearer = '';
+  if (tokenResp.status !== 204) {
+    try {
+      const data = JSON.parse(await tokenResp.text());
+      bearer = data && typeof data === 'object' ? data.token : null;
+    } catch { bearer = null; }
+    if (typeof bearer !== 'string' || !/^[A-Za-z0-9._~+\/=-]+$/.test(bearer)) {
+      throw new ElbError('ELB 登入失敗，授權 token 格式不正確');
+    }
   }
 
   const session = { sessionCookie: elbCookieHeader(jar), bearer, origin: ELB_BASE };
@@ -819,8 +822,8 @@ async function elbWSQuery(session, funcName, content) {
 
     try {
       ws.accept();
-      // 與上游 app 相同：連線後先送 bearer 授權通知，之後才會有 localApplicationConfiguration / req
-      ws.send(JSON.stringify({ type: 'not', func: 'authorization', content: { bearer: session.bearer } }));
+      // 與上游 app 相同：有 bearer 才送授權通知；204 以 cookie session 連線。
+      if (session.bearer) ws.send(JSON.stringify({ type: 'not', func: 'authorization', content: { bearer: session.bearer } }));
       authSent = true;
       sendRequest();
     } catch {
