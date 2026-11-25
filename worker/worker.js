@@ -720,7 +720,7 @@ async function elbHttpLogin(env) {
       'Cookie': elbCookieHeader(jar),
     },
   });
-  if (!elbIsOk(tokenResp) || tokenResp.status === 204) throw new ElbError('ELB 登入失敗，無法取得授權 token');
+  if (!elbIsOk(tokenResp) || tokenResp.status === 204) throw new ElbError(`ELB 登入失敗，無法取得授權 token（HTTP ${tokenResp.status}）`);
   elbMergeCookies(jar, tokenResp);
   if ((tokenResp.headers.get('content-type') || '').toLowerCase().includes('html')) {
     throw new ElbError('ELB 登入失敗，無法取得授權 token');
