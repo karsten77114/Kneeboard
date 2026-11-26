@@ -53,6 +53,41 @@ test('cookie-free login page uses DWR bootstrap and authenticated flight lookup'
   assert.equal((await flights.json())[0].flight, '123');
 });
 
+test('DWR bootstrap session ID containing "!" logs in and queries flights', async t => {
+  const bangId = 'AbC123!xYz~45';
+  mockRequests(t, [
+    () => new Response('<html>Lido Authentication Service</html>'),
+    () => new Response(`dwr.engine.remote.handleCallback("0","0","${bangId}");`),
+    (url, options) => {
+      assert.ok(url.endsWith('/LoginBean.login.dwr'));
+      assert.ok(options.body.includes(`scriptSessionId=${encodeURIComponent(bangId)}`));
+      assert.ok(options.headers.Cookie.includes(`DWRSESSIONID=${bangId}`));
+      return loginOK();
+    },
+    (url, options) => {
+      assert.ok(url.includes('/flightlist?'));
+      assert.match(options.headers.Cookie, /lido_auth=test-auth/);
+      return Response.json([{ flightNumber: '456', legId: 'test-leg', departureAirport: 'TPE', destinationAirport: 'NRT' }]);
+    },
+  ]);
+  const response = await worker.fetch(loginRequest(), env);
+  assert.equal(response.status, 200);
+  const { sessionToken } = await response.json();
+  const flights = await worker.fetch(new Request(`https://worker.test/flights?date=20260922&sessionToken=${encodeURIComponent(sessionToken)}`), env);
+  assert.equal(flights.status, 200);
+  assert.equal((await flights.json())[0].flight, '456');
+});
+
+test('DWR bootstrap session ID with a newline is still rejected', async t => {
+  mockRequests(t, [
+    () => new Response('login'),
+    () => new Response('dwr.engine.remote.handleCallback("0","0","bad\nid");'),
+  ]);
+  const response = await worker.fetch(loginRequest(), env);
+  assert.equal(response.status, 500);
+  assert.match((await response.json()).error, /DWR/);
+});
+
 test('legacy login retains server-provided session and affinity cookies', async t => {
   mockRequests(t, [
     () => new Response('login', { headers: { 'Set-Cookie': 'lido_las=legacy-session; Path=/, las_serverid=docker2; Path=/' } }),

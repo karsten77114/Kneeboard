@@ -873,7 +873,7 @@ async function getLidoSession() {
   });
   if (!bootstrap.ok) throw new Error(`LIDO DWR bootstrap HTTP ${bootstrap.status}`);
   const reply = await bootstrap.text();
-  const dwrSessionId = reply.match(/handleCallback\(\s*"0"\s*,\s*"0"\s*,\s*"([A-Za-z0-9._~+/=-]+)"\s*\)/)?.[1];
+  const dwrSessionId = reply.match(/handleCallback\(\s*"0"\s*,\s*"0"\s*,\s*"([A-Za-z0-9._~+/=!-]+)"\s*\)/)?.[1];
   if (!dwrSessionId) throw new Error('Failed to establish LIDO DWR session');
   const bootstrapCookies = bootstrap.headers.get('set-cookie') || '';
   lidoLas = parseCookieValue([bootstrapCookies], 'lido_las');
